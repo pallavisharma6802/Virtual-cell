@@ -1,0 +1,11 @@
+run:
+  name: baseline_no_effect_and_seen_mean
+  seed: 0
+split:
+  type: held_out_target
+  val_frac: 0.2
+  test_frac: 0.2
+model:
+  kind: baselines
+  variants: [no_effect, seen_target_mean]
+output_dir: outputs/baseline

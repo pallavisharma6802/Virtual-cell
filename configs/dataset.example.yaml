@@ -1,0 +1,20 @@
+# Example dataset config. Real-data paths are configurable and unset by
+# default; Milestone 1 runs entirely on the synthetic fixture below.
+dataset:
+  kind: synthetic_fixture   # or "local_anndata" once a real adapter is wired up
+  synthetic:
+    n_genes: 200
+    n_targets: 24
+    n_batches: 3
+    n_cell_types: 2
+    cells_per_target: 20
+    cells_per_control: 60
+    seed: 0
+  local_anndata:
+    path: null               # path to a real .h5ad file; verify license/access first
+    gene_id_column: null
+    perturbation_id_column: null
+    is_control_column: null
+    cell_type_column: null
+    batch_id_column: null
+    donor_id_column: null

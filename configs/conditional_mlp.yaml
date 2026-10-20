@@ -1,0 +1,13 @@
+# Placeholder config for Milestone 3 (conditional PyTorch model).
+# Not yet implemented — see docs/experiment_log.md for status.
+run:
+  name: conditional_mlp
+  seed: 0
+split:
+  type: held_out_target
+  val_frac: 0.2
+  test_frac: 0.2
+model:
+  kind: conditional_mlp
+  status: not_implemented
+output_dir: outputs/conditional_mlp

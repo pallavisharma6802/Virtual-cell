@@ -1,0 +1,10 @@
+# Placeholder config for Milestone 5 (optional pretrained foundation
+# encoder, e.g. scGPT). Not yet implemented — see docs/experiment_log.md.
+run:
+  name: foundation_encoder
+  seed: 0
+model:
+  kind: foundation_encoder
+  checkpoint: null
+  status: not_implemented
+output_dir: outputs/foundation_encoder
