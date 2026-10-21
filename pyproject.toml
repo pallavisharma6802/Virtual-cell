@@ -16,6 +16,9 @@ dependencies = [
     "pytest>=7.4",
 ]
 
+[project.optional-dependencies]
+gcs = ["gcsfs>=2023.1", "h5py>=3.9"]
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
