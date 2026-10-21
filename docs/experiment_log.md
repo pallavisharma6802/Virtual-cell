@@ -139,3 +139,81 @@ built in Milestone 1, applied to `perturbation_id`.
 - `pytest -q` still runs entirely on the synthetic fixture by default;
   the real-data path is opt-in and network-gated, consistent with "CPU
   smoke tests" staying fast and offline.
+
+## 2026-11-05 — Milestone 3: conditional PyTorch model (synthetic fixture only)
+
+**What was built:**
+- `src/virtualcell/models/conditional.py`: `ConditionalDeltaModel` — control
+  encoder (MLP over the sampled control profile) + target encoder (MLP
+  over a target descriptor) + concat fusion MLP + linear delta head, with
+  `use_control_context` / `use_target_descriptor` flags built into the
+  model so ablations reuse the same class rather than separate code paths.
+- `src/virtualcell/data/target_descriptors.py`: target-gene descriptor =
+  that gene's own control-population mean/std, fit on TRAIN controls
+  only. This is a deliberately weak, hand-built descriptor, not a
+  pretrained gene-representation model — the plan's stronger option
+  (section 4A) was not pursued this session; using it would require
+  separately verifying license/coverage for a specific pretrained model,
+  which has not been done.
+- `src/virtualcell/data/control_sampling.py`: documented control-context
+  sampling — one control cell from the same batch (fallback: same-split
+  random control) per perturbed cell, restricted to a given control pool
+  so held-out cells never draw on held-out controls.
+- `src/virtualcell/training/losses.py` and `training/trainer.py`: Huber/MSE
+  loss, full-batch Adam training loop, early stopping on validation loss,
+  checkpoint save/load (`model.pt` + `config.json`), seeded.
+- `scripts/train_conditional.py`: end-to-end Milestone 3 run — builds the
+  held-out-target split, scaler, descriptors, and matched-control arrays;
+  trains three variants (`full`, `ablation_no_control`,
+  `ablation_no_target`); evaluates each on the held-out test targets;
+  saves and reloads each checkpoint to verify predictions are unchanged.
+- Fixed `data/fixtures.py` so synthetic perturbation targets are drawn
+  from the synthetic gene vocabulary (as in the real Arc data, where a
+  target IS a measured gene) — needed for the control-mean/std descriptor
+  to be meaningful on the fixture, not just on real data.
+- Tests: `tests/test_model_shapes.py` (replacing the earlier skip
+  placeholder) and `tests/test_trainer.py` — 26 passed, 1 skipped (still
+  the network-gated Arc integration test).
+
+**Command run and actual result** (`python scripts/train_conditional.py`,
+seed=0, synthetic fixture, 540 cells / 200 genes / 14-5-5 train-val-test
+target split, 100 held-out test cells):
+
+| variant | best val loss | test MAE (scaled) | no-effect MAE (scaled) | improvement vs no-effect | checkpoint reload matches |
+|---|---|---|---|---|---|
+| full | 0.488 | 0.880 | 1.084 | **+18.9%** | yes |
+| ablation_no_control | 0.675 | 1.080 | 1.084 | +0.5% | yes |
+| ablation_no_target | 0.475 | 0.865 | 1.084 | +20.2% | yes |
+
+Full run output saved at `outputs/conditional_mlp/{full,ablation_no_control,ablation_no_target}/`.
+
+**Honest reading of this result, not a claim beyond it:** this is a
+synthetic-fixture sanity check, not a real-data result. The
+`ablation_no_control` variant collapsing to ~no-effect-baseline
+performance is expected and correct: on this fixture the per-cell batch
+and cell-type noise dominates unless the model sees the matching control,
+so removing control context should (and does) remove most of the signal.
+The `ablation_no_target` variant performing comparably to `full` suggests
+the 2-scalar control-mean/std target descriptor is not adding much
+learnable signal here relative to the control-conditioned baseline — a
+plausible outcome for a deliberately weak descriptor on this fixture's
+simulated effect sizes, not evidence either way about real perturbation
+data. Reported as a mixed/inconclusive ablation result, not forced into a
+positive conclusion, per the plan's null-result policy.
+
+**Status vs. plan:** Milestone 3's acceptance test items are met on the
+synthetic fixture: model reloads for inference with identical predictions
+(`checkpoint_reload_matches_predictions: true` for all three variants),
+all variants share the same held-out-target split and scaler, and
+model-vs-baseline results are reported including the ablation where the
+model does NOT clearly beat baseline MAE reduction expectations (the
+target-descriptor ablation).
+
+**Not done / explicitly deferred:**
+- No training run on the real Arc dataset yet — this entire milestone
+  ran on the synthetic fixture only, per the plan-ordering decision made
+  with the project owner to build/validate the model on the fixture
+  before deciding whether to download or stream the real 14.4 GiB file.
+- No attention/transformer fusion variant (plan lists this as optional,
+  "concat + MLP first").
+- No loss-choice ablation (Huber vs MSE) run yet.

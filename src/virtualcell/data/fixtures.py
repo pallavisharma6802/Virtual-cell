@@ -36,7 +36,12 @@ def make_synthetic_dataset(
     rng = np.random.default_rng(seed)
 
     gene_ids = [f"gene_{i:04d}" for i in range(n_genes)]
-    target_ids = [f"target_{i:03d}" for i in range(n_targets)]
+    # Targets are a subset of the gene vocabulary, matching real CRISPR
+    # perturbation data (e.g. Arc's target_gene column) where a
+    # perturbation target IS one of the measured genes.
+    if n_targets > n_genes:
+        raise ValueError("n_targets cannot exceed n_genes")
+    target_ids = list(rng.choice(gene_ids, size=n_targets, replace=False))
     batch_ids = [f"batch_{i}" for i in range(n_batches)]
     cell_types = [f"celltype_{i}" for i in range(n_cell_types)]
 
