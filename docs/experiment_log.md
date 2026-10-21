@@ -217,3 +217,60 @@ target-descriptor ablation).
 - No attention/transformer fusion variant (plan lists this as optional,
   "concat + MLP first").
 - No loss-choice ablation (Huber vs MSE) run yet.
+
+## 2026-11-05 — Milestone 4: research-grade evaluation (synthetic fixture only)
+
+**What was built:**
+- `src/virtualcell/evaluation/biological.py`: `de_genes_by_ttest`
+  (Welch's t-test per gene + Benjamini-Hochberg FDR correction, a
+  documented statistical procedure, not a claim of biological mechanism)
+  and `top_k_precision_recall` (NaN-safe when there are no DE genes to
+  retrieve).
+- `src/virtualcell/evaluation/report.py`: `per_context_mae` (batch
+  breakdown), `worst_targets`, `de_overlap_by_target`, and
+  `build_full_report` tying per-target metrics + grouped bootstrap CI +
+  worst-3 + context breakdown together.
+- `scripts/evaluate.py`: loads the Milestone 3 `full` checkpoint, runs
+  the full report + DE overlap on the held-out test split, and saves an
+  observed-vs-predicted scatter figure for the single worst target.
+- `docs/results.md`: full write-up with per-target table, per-batch
+  table, worst-3 failure-case discussion, DE-overlap table, and an
+  explicit H1-H3 status read plus limitations section.
+- `tests/test_evaluation_report.py`: 6 new tests (per-context breakdown,
+  worst-target ranking, report assembly, DE detection on a known shifted
+  gene, precision/recall correctness and NaN-safety). 32 tests pass total,
+  1 skipped (still the network-gated Arc test).
+
+**Command run and actual result:**
+
+```bash
+source .venv/bin/activate
+python scripts/evaluate.py
+# -> outputs/evaluation_milestone4/evaluation_report.json
+# -> outputs/evaluation_milestone4/observed_vs_predicted_worst_target.png
+```
+
+Key honest finding from this run (full numbers in `docs/results.md`): the
+model shows weak-to-moderate per-target correlation (Pearson 0.31–0.50)
+and clear control-context benefit (Milestone 3), but its top-20
+predicted-delta genes have near-chance overlap with the statistically
+defined DE gene set (precision/recall ≈ 0.00–0.05 across all 5 held-out
+targets) — a genuine negative result for gene-level identification with
+this specific weak target descriptor, reported as such rather than
+omitted.
+
+**Status vs. plan:** Milestone 4's acceptance test is met for the
+synthetic fixture: `docs/results.md` has actual tables, a figure, run
+IDs, sample sizes, and conclusions/limitations — including a clear
+negative result (DE overlap), not a forced positive one. At least 3
+failure cases were investigated (gene_0171, gene_0105, gene_0032), with
+an honest note that the fixture's randomized per-target effects make
+root-causing further than "weaker/noisier true effect" not meaningful
+here.
+
+**Not done / explicitly deferred:**
+- No evaluation on real Arc/scPerturb data — still entirely
+  synthetic-fixture based.
+- H3 (secondary batch/context-holdout split) not implemented or
+  evaluated.
+- Pathway analysis not attempted (plan marks this optional).
