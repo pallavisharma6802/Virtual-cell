@@ -405,3 +405,56 @@ correction.
 fixture, not the real-data pilot — doing so would need the same EC2
 infrastructure as the real-data pilot run and was not requested this
 session.
+
+## 2026-11-05 — Richer target descriptor (co-expression profile)
+
+**Why:** per the owner's request to try a richer target descriptor before
+the heavier Milestone 5 pretrained-encoder work, added a descriptor based
+on real (non-leaking) structure instead of 2 scalars.
+
+**What was built:**
+- `src/virtualcell/data/target_descriptors.py`:
+  `fit_coexpression_descriptors` — Pearson correlation of each gene with
+  every other gene, computed across TRAIN control cells only, then
+  PCA-reduced (default 20 components, capped to available genes/variance).
+  Documented explicitly as a hand-built structural feature, not a
+  pretrained embedding.
+- `tests/test_target_descriptors.py`: 4 new tests (full gene coverage,
+  descriptor exists for held-out targets, component capping, and that it
+  differs in shape from the mean/std descriptor). 40 tests pass total
+  (36 + 4), 1 skipped.
+- `scripts/compare_baseline_ladder.py` extended with `--descriptor
+  {mean_std,coexpression}` and `--n-components` so both descriptors run
+  through the identical baseline ladder.
+
+**Command run and actual result** (both on the same synthetic fixture/
+split as before, seed=0):
+
+| model | weak (mean/std) MAE | improvement | coexpression (20-dim) MAE | improvement |
+|---|---|---|---|---|
+| PCA + ridge | 0.921 | +15.1% | 1.070 | +1.3% |
+| small MLP | 0.874 | +19.4% | 0.918 | +15.3% |
+| conditional model | 0.880 | +18.9% | 0.883 | +18.6% |
+
+**Honest finding, not smoothed over:** the richer descriptor made the
+simpler baselines (PCA+ridge, small MLP) noticeably *worse*, and left the
+conditional model essentially unchanged (0.880 -> 0.883, within noise).
+Most likely cause: this fixture has only 14 training targets, so a
+20-dimensional descriptor gives the simpler models far more capacity to
+overfit relative to the number of effective training examples than the
+2-scalar descriptor did. This is reported as a genuine negative result
+for this descriptor on this small fixture — not evidence that richer
+target descriptors are a dead end, since the real Arc dataset has ~150
+targets (more training signal) and was not re-tested with this
+descriptor this session. Full discussion in `docs/results.md`.
+
+**Status vs. plan:** this directly follows up on the plan's section 4A
+suggestion that a richer, generalizable target descriptor (short of a
+full pretrained model) is worth trying before escalating to Milestone 5.
+The result argues for testing on a dataset with more targets (real data)
+before concluding either way, rather than assuming the richer descriptor
+is simply better.
+
+**Not done:** not re-run on real Arc data or the real-data pilot (would
+need EC2 again); no attention/transformer fusion tried as an alternative
+way to use the higher-dimensional descriptor.

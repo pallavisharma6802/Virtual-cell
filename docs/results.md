@@ -137,6 +137,44 @@ not yet implemented) is the more likely lever for separating these models
 meaningfully, rather than further architecture changes to the conditional
 model on top of this same weak descriptor.
 
+## Richer target descriptor: co-expression profile (added after owner request)
+
+Per the plan's suggestion (section 4A) that a richer, generalizable
+target descriptor is the likely lever for improving held-out-target
+prediction, a second descriptor was added:
+`fit_coexpression_descriptors` — each gene's Pearson correlation with
+every other gene across TRAIN control cells, PCA-reduced to 20
+components. This is still hand-built (not a pretrained embedding), but
+captures real network/co-expression structure rather than two scalars.
+Fit strictly on train controls only, so it is non-leaking, same as the
+weak descriptor.
+
+| model | weak descriptor (mean/std, 2-dim) MAE | improvement | co-expression descriptor (20-dim) MAE | improvement |
+|---|---|---|---|---|
+| PCA + ridge | 0.921 | +15.1% | **1.070** | **+1.3%** |
+| Small MLP | 0.874 | +19.4% | **0.918** | **+15.3%** |
+| Conditional model | 0.880 | +18.9% | 0.883 | +18.6% |
+
+**Honest, somewhat surprising finding: the richer descriptor made things
+*worse* for the simpler baselines, and essentially flat for the
+conditional model.** The most plausible explanation, not papered over:
+this fixture only has 14 training targets. A 20-dimensional descriptor
+gives PCA+ridge and the small MLP far more parameters to fit against far
+fewer effective training examples (grouped by target) than the 2-scalar
+descriptor did, so they likely overfit the correlation-structure noise
+rather than learning a genuinely better signal. The conditional model's
+separate target encoder (which compresses the 20-dim input through its
+own small hidden layer before fusion) appears mildly more robust to this,
+but shows no real net improvement over its own weak-descriptor result
+(0.880 -> 0.883, within noise) — i.e. **this richer descriptor did not
+demonstrably help on this fixture**, which is itself a negative,
+reportable result, not evidence that richer descriptors are a dead end
+in general. This fixture's small target count (24 total) is likely the
+binding constraint, not the descriptor concept — a real dataset with
+hundreds of training targets (like the actual Arc data, which has 150
+targets total) would be a fairer test of whether this kind of descriptor
+helps, and was not re-tested here.
+
 ## Conclusions (synthetic fixture only)
 
 - **H1 (conditional model beats no-effect baseline on held-out targets):**

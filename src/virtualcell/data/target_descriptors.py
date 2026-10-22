@@ -19,6 +19,7 @@ adding real coverage/provenance documentation first, not here.
 from __future__ import annotations
 
 import numpy as np
+from sklearn.decomposition import PCA
 
 from virtualcell.data.adapters import CanonicalDataset
 from virtualcell.data.splits import SplitManifest
@@ -41,6 +42,52 @@ def fit_control_mean_std_descriptors(
         gene: np.array([mean_per_gene[i], std_per_gene[i]], dtype=np.float32)
         for i, gene in enumerate(dataset.gene_ids)
     }
+
+
+def fit_coexpression_descriptors(
+    dataset: CanonicalDataset,
+    manifest: SplitManifest,
+    n_components: int = 20,
+    seed: int = 0,
+) -> dict[str, np.ndarray]:
+    """Richer target descriptor: each gene's co-expression profile (its
+    Pearson correlation with every other gene) across TRAIN control cells,
+    reduced via PCA to `n_components`.
+
+    Rationale: a gene's co-expression neighborhood in the unperturbed
+    state is a real, non-leaking, generalizable signal about which
+    pathway/regulon it participates in — genes that correlate with a
+    knocked-out gene's baseline expression are more plausible candidates
+    for being downstream-affected by its perturbation than genes picked
+    at random. This is a hand-built structural feature, not a trained
+    embedding or a pretrained foundation model (that remains the plan's
+    stronger, not-yet-attempted option in section 4A/Milestone 5) — but
+    it is categorically richer than the 2-scalar mean/std descriptor in
+    `fit_control_mean_std_descriptors`, and it is still fit on TRAIN
+    control cells only, so it never sees perturbed-cell or held-out-
+    target response data.
+
+    PCA is fit on the gene x gene correlation matrix itself (one row per
+    gene, all genes as features), not on cells, and `n_components` is
+    capped to what the number of genes/available variance supports.
+    """
+    obs = dataset.adata.obs
+    train_mask = obs.index.isin(manifest.train_cell_ids)
+    ctrl_mask = dataset.control_mask()
+    mask = train_mask & ctrl_mask
+
+    X_train_ctrl = np.asarray(dataset.adata.X[mask])
+    if X_train_ctrl.shape[0] < 3:
+        raise ValueError("Need at least 3 train control cells to compute co-expression")
+
+    corr = np.corrcoef(X_train_ctrl, rowvar=False)
+    corr = np.nan_to_num(corr, nan=0.0)
+
+    n_components = min(n_components, corr.shape[0], corr.shape[1])
+    pca = PCA(n_components=n_components, random_state=seed)
+    reduced = pca.fit_transform(corr)
+
+    return {gene: reduced[i].astype(np.float32) for i, gene in enumerate(dataset.gene_ids)}
 
 
 def descriptor_for_targets(
