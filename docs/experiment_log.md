@@ -274,3 +274,76 @@ here.
 - H3 (secondary batch/context-holdout split) not implemented or
   evaluated.
 - Pathway analysis not attempted (plan marks this optional).
+
+## 2026-11-05 — Real-data pilot: conditional model on live Arc data (AWS EC2)
+
+**Infrastructure used (with owner's explicit approval, all cleaned up
+after the run):** a temporary AWS EC2 `m7i-flex.large` instance (2 vCPU,
+8GB RAM — the account is restricted to free-tier-eligible instance types
+only, so this is the largest type available, not a deliberate choice) in
+`us-east-1`, SSH restricted to the operator's IP only, and an S3 bucket
+(`virtualcell-635863384351`) for result storage. The instance was
+terminated and the security group / key pair deleted immediately after
+pulling results back locally; nothing billable is left running. S3 still
+holds the small (~1.2MB) results/checkpoint files under
+`milestone5_real_arc_pilot/` — trivial ongoing storage cost, can be
+deleted on request.
+
+**What was run:** `scripts/train_real_arc.py` — same `ConditionalDeltaModel`
+architecture and `held_out_target_split` logic as Milestones 3-4, now
+pointed at the real, live Arc Virtual Cell Challenge 2025 training file
+(`gs://arc-institute-virtual-cell-atlas/.../adata_Training.h5ad`, verified
+in Milestone 2) instead of the synthetic fixture.
+
+**This is explicitly a SUBSAMPLED pilot, not the full dataset**, because
+8GB RAM cannot hold the full 221,273 cells x 18,080 genes sparse matrix.
+To fit:
+- At most 60 cells per target (plus up to 2000 control cells) were
+  randomly sampled from the full 221,273-cell pool.
+- Genes were restricted to the top 1000 by control-population variance,
+  computed on the SAMPLED control cells only (not using any perturbed
+  cell or held-out-target information) — a documented dimensionality
+  reduction, not a result-affecting leak.
+- Materializing even this subsample required backed (remote, chunked)
+  reads from the live GCS bucket over the network, which took ~23
+  minutes (1391s) for ~11k cells — the dominant cost of the run, not the
+  training itself.
+
+**Actual result** (seed=0, real Arc data, 10,960 cells x 1,000 genes,
+150 real CRISPR-knockout targets, 90 train / 30 val / 30 test targets,
+1,787 held-out test cells):
+
+| metric | value |
+|---|---|
+| test MAE (scaled) | 0.926 |
+| no-effect baseline MAE (scaled) | 1.056 |
+| **improvement over no-effect** | **+12.3%** |
+| grouped bootstrap CI on per-target MAE (30 target groups, 95%) | mean 0.232, [0.194, 0.275] |
+| worst 3 targets by MAE | RNF20 (MAE 0.554, Pearson 0.156), METTL3 (MAE 0.508, Pearson 0.024), SSBP1 (MAE 0.430, Pearson 0.022) |
+
+Full output: `outputs/real_arc_pilot/metrics.json`,
+`outputs/real_arc_pilot/checkpoint/` (reloadable), and
+`outputs/real_arc_pilot/train_real_arc.log`.
+
+**Honest reading:** this is the first result on genuinely real
+perturbation data in this project, and it is directionally consistent
+with the synthetic-fixture finding (Milestone 3-4): a positive but modest
+improvement over the no-effect baseline (+12.3% here vs. +18.9% on the
+synthetic fixture), with wide per-target variance (some targets like
+METTL3/SSBP1 show near-zero correlation, i.e. the model does not predict
+their response pattern at all). With 30 held-out test targets this
+bootstrap CI is meaningfully better powered than the synthetic fixture's
+5-target CI, but this is still a single seed, single subsample, heavily
+gene-reduced (1000 of 18,080 genes) pilot — not a claim about
+full-dataset or full-gene-vocabulary performance, and not yet compared
+against the scPerturb secondary dataset or a richer target descriptor.
+
+**Not done / explicitly deferred:**
+- No run on the full 221k-cell / 18,080-gene dataset (would need more
+  RAM than this account's free-tier-eligible instance types provide).
+- No DE-overlap or per-batch breakdown computed for this real-data run
+  (Milestone 4's full evaluation script was not re-pointed at real data
+  this session — only the core training/MAE/bootstrap-CI comparison).
+- No ablations (control-removed / target-removed) re-run on real data.
+- No comparison against Arc's own official test split (this used our own
+  `held_out_target_split` on a subsample, not Arc's `2025/test` folder).
