@@ -95,6 +95,48 @@ individual genes are most affected. That is a meaningful limitation of
 this specific weak target descriptor + small MLP, on this fixture — not
 evidence about real perturbation data, and not something to paper over.
 
+## Full baseline ladder (added after owner request — plan section 4A order)
+
+The plan specifies building baselines in order before the conditional
+model: no-effect → seen-target mean → PCA+ridge → small MLP. The first
+pass of this project only built the first two and jumped straight to the
+conditional model, skipping PCA+ridge and a standalone small-MLP
+baseline — an antipattern the plan itself warns against (section 10:
+"build a giant transformer before baselines are reproducible"). This was
+corrected: `scripts/compare_baseline_ladder.py` runs all five models on
+the identical held-out-target split, scaler, target descriptor, and
+matched-control sampling.
+
+| model | test MAE (scaled) | improvement vs no-effect |
+|---|---|---|
+| 1. No-effect | 1.084 | 0.0% |
+| 2. Seen-target mean | 1.084 | 0.0% (falls back to zero for every held-out target, by design) |
+| 3. PCA + ridge (20 components) | 0.921 | +15.1% |
+| 4. **Small MLP** (1 hidden layer, same inputs) | **0.874** | **+19.4%** |
+| 5. Conditional model (control + target encoders + fusion) | 0.880 | +18.9% |
+
+**Honest finding: the plain small MLP baseline slightly outperforms the
+conditional model** on this synthetic fixture (0.874 vs. 0.880 MAE — a
+small gap, within noise, but the conditional model does NOT clearly beat
+the simpler baseline it was meant to improve on). PCA+ridge is weaker
+than both MLP variants but still clearly ahead of the no-effect/seen-mean
+baselines.
+
+**What this means:** on this fixture, the conditional model's extra
+structure (separate control/target encoders + fusion block) is not
+earning its added complexity over a single-hidden-layer MLP given the
+same two input blocks (control profile, 2-scalar target descriptor). This
+is a legitimate, reportable negative result for the architecture choice,
+not a flaw in the baselines — and it is consistent with Milestone 4's
+finding that the `ablation_no_target` variant performed similarly to the
+full conditional model: the weak 2-scalar target descriptor may simply
+not carry enough information for the extra encoder/fusion machinery to
+exploit, regardless of which model wraps around it. A richer target
+descriptor (plan section 4A's suggested pretrained gene representation,
+not yet implemented) is the more likely lever for separating these models
+meaningfully, rather than further architecture changes to the conditional
+model on top of this same weak descriptor.
+
 ## Conclusions (synthetic fixture only)
 
 - **H1 (conditional model beats no-effect baseline on held-out targets):**
@@ -120,6 +162,9 @@ evidence about real perturbation data, and not something to paper over.
   a real gene-representation model — the DE-overlap failure likely
   reflects this descriptor's limited information content, not a
   fundamental property of the conditional-modeling approach.
+- The conditional model does not clearly beat a plain small MLP baseline
+  given the same inputs (see "Full baseline ladder" above) — the
+  architecture's value is unproven on this fixture with this descriptor.
 - No H3 (context/batch-holdout) split has been run.
 - No real dataset (Arc Virtual Cell Challenge or scPerturb) has been
   trained or evaluated on. Milestone 2 verified access/schema and built a

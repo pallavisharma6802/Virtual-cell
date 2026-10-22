@@ -347,3 +347,61 @@ against the scPerturb secondary dataset or a richer target descriptor.
 - No ablations (control-removed / target-removed) re-run on real data.
 - No comparison against Arc's own official test split (this used our own
   `held_out_target_split` on a subsample, not Arc's `2025/test` folder).
+
+## 2026-11-05 — Full baseline ladder (PCA+ridge, small MLP) — gap fix
+
+**Why:** the plan's section 4A specifies building baselines in order
+(no-effect → seen-target mean → PCA+ridge → small MLP) *before* the
+conditional model. Milestone 3 skipped straight to the conditional model
+without PCA+ridge or a standalone small-MLP baseline — flagged by the
+project owner and corrected here, following the plan strictly as
+instructed.
+
+**What was built:**
+- `src/virtualcell/models/baselines.py`: added `PCARidgeBaseline`
+  (sklearn PCA on the control profile + target descriptor -> ridge
+  regression, PCA/ridge both fit on train only, `n_components` capped to
+  available samples/features) and `SmallMLPBaseline` (sklearn
+  `MLPRegressor`, single hidden layer, same two input blocks as the
+  conditional model, early stopping).
+- `scripts/compare_baseline_ladder.py`: runs all 5 models — no-effect,
+  seen-target mean, PCA+ridge, small MLP, conditional model — on the
+  IDENTICAL held-out-target split/scaler/descriptor/control-sampling, so
+  the comparison is apples to apples.
+- `tests/test_baseline_ladder.py`: 4 new tests (shape correctness, small-
+  sample `n_components` handling, and that the small MLP actually learns
+  on a toy linear signal). 36 tests pass total, 1 skipped.
+
+**Command run and actual result** (`python scripts/compare_baseline_ladder.py`,
+seed=0, same synthetic fixture/split as Milestone 3, 100 held-out test
+cells across 5 targets):
+
+| model | test MAE (scaled) | improvement vs no-effect |
+|---|---|---|
+| no-effect | 1.084 | 0.0% |
+| seen-target mean | 1.084 | 0.0% (expected fallback) |
+| PCA + ridge | 0.921 | +15.1% |
+| small MLP | **0.874** | **+19.4%** |
+| conditional model | 0.880 | +18.9% |
+
+**Honest finding, not smoothed over:** the plain small MLP baseline
+slightly *outperforms* the conditional model (0.874 vs 0.880 MAE). The
+conditional model's extra architecture (separate control/target encoders
++ fusion) does not demonstrate a clear advantage over a single-hidden-
+layer MLP given the same inputs, on this fixture, with this weak target
+descriptor. Full discussion in `docs/results.md` ("Full baseline ladder"
+section) — this is consistent with, not contradicting, Milestone 4's
+`ablation_no_target` finding: the 2-scalar descriptor likely caps what
+any of these models (simple or complex) can extract about per-target
+response identity.
+
+**Status vs. plan:** section 4A's baseline order is now followed
+completely before the conditional model is treated as the lead result.
+The plan's antipattern list (section 10, "build a giant transformer
+before baselines are reproducible") is specifically addressed by this
+correction.
+
+**Not done:** the baseline ladder was only re-run on the synthetic
+fixture, not the real-data pilot — doing so would need the same EC2
+infrastructure as the real-data pilot run and was not requested this
+session.
