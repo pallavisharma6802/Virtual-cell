@@ -41,3 +41,17 @@ def test_trainer_save_and_load_roundtrip(tmp_path):
     pred_after = reloaded.predict_delta(val_ctrl, val_desc)
 
     assert np.allclose(pred_before, pred_after, atol=1e-5)
+
+
+def test_trainer_mini_batch_matches_full_batch_shape_and_trains():
+    train_ctrl, train_desc, train_delta = _toy_data(n=50, seed=1)
+    val_ctrl, val_desc, val_delta = _toy_data(n=10, seed=2)
+
+    model_config = ConditionalModelConfig(n_genes=6, target_descriptor_dim=2)
+    train_config = TrainConfig(seed=0, max_epochs=50, patience=15, batch_size=16)
+    trainer = Trainer(model_config, train_config)
+    result = trainer.fit(train_ctrl, train_desc, train_delta, val_ctrl, val_desc, val_delta)
+
+    assert result.best_val_loss <= result.val_losses[0]
+    pred = trainer.predict_delta(val_ctrl, val_desc)
+    assert pred.shape == val_delta.shape

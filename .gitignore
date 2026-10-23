@@ -12,3 +12,5 @@ outputs/*
 .ipynb_checkpoints/
 *.pt
 *.ckpt
+.aws_infra/
+*.pem

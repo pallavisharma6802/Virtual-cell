@@ -519,3 +519,57 @@ actually been run on real data, not skipped. Full discussion in
   MLP's hidden_dim, or the conditional model's architecture — all left
   at the same defaults used throughout this project for a fair, simple
   comparison, not because they are known to be optimal.
+
+## 2026-11-05 — Engineering: mini-batch training + concurrent-loader experiment
+
+**Why:** owner requested moving beyond the ~11k-cell pilot to substantially
+more real data, which needs (a) mini-batch training so the trainer isn't
+tied to full-batch gradient descent at any scale, and (b) a faster data
+loading path, since the previous pilot's GCS fetch step (23 min for ~11k
+cells) would scale to hours for a much larger subsample.
+
+**What was built:**
+- `training/trainer.py`: `TrainConfig.batch_size` (default `None` = exact
+  original full-batch behavior, verified bit-for-bit identical on
+  `compare_baseline_ladder.py`'s synthetic-fixture numbers after the
+  change). When set, `Trainer.fit` shuffles and iterates mini-batches
+  each epoch.
+- `tests/test_trainer.py`: added a mini-batch training test.
+- `data/arc_adapter.py`: `materialize_cells_concurrent` — fetches cell
+  rows via multiple parallel GCS connections (`ThreadPoolExecutor`),
+  intended to speed up the network-bound materialization step.
+
+**Measured, and reverted when it didn't help:** before committing to the
+concurrent loader for the real run, it was validated against the proven
+sequential path on the SAME instance type, same live bucket: fetching
+2,000 cells took **581.6s with 12-way concurrency (0.29 s/cell)**, versus
+the earlier pilot's **1391s for ~11,000 cells (0.127 s/cell) sequential**
+— i.e. the "optimization" was over 2x SLOWER per cell, not faster. Most
+likely cause: each worker thread calls `ad.read_h5ad(..., backed="r")`
+independently, re-reading the full remote HDF5 metadata/group structure
+per chunk, and that per-chunk open overhead dominates over the real
+per-row read cost. `materialize_cells_concurrent` is kept in the codebase
+(and could be fixed by sharing one open file handle across threads
+instead of reopening per chunk) but is NOT used in
+`scripts/scale_up_real_arc.py` — that script explicitly uses the plain
+sequential `dataset.adata[positions, :].to_memory()` path, the one
+actually measured to work, with a comment explaining why.
+
+**Honest note:** this is reported as a measured negative result for the
+concurrency approach as implemented, not a claim that concurrent fetching
+can never help here — a corrected version (one shared file handle, or a
+process pool instead of threads to sidestep the open overhead per
+worker) might still be worth trying later, but was not attempted this
+session given the time already spent validating the simpler approach
+works at the needed scale.
+
+**Scale-up run status:** `scripts/scale_up_real_arc.py` was launched on a
+fresh EC2 `m7i-flex.large` instance (new key pair/security group, same
+type/region, old ones from the second real-data pilot already deleted)
+targeting ~48,000 cells (300/target cap x 150 targets + 3,000 controls),
+1,500 top-variable genes, with a 4-config hyperparameter sweep for the
+conditional model and the full baseline ladder for comparison. Expected
+fetch time ~1.7 hours at the measured sequential rate. Result pending at
+the time of this log entry — see the next entry for the outcome, or
+check `outputs/scale_up_real_arc/metrics.json` / the matching S3 path if
+this entry is read before that follow-up was written.

@@ -23,6 +23,7 @@ class TrainConfig:
     max_epochs: int = 200
     patience: int = 15
     weight_decay: float = 1e-5
+    batch_size: int | None = None  # None = full-batch (original behavior)
 
 
 @dataclass
@@ -62,6 +63,10 @@ class Trainer:
         Xv_tgt = torch.tensor(val_target_desc, dtype=torch.float32)
         yv = torch.tensor(val_delta, dtype=torch.float32)
 
+        n_train = X_ctrl.shape[0]
+        batch_size = cfg.batch_size if cfg.batch_size is not None else n_train
+        rng = np.random.default_rng(cfg.seed)
+
         best_val_loss = float("inf")
         best_state = None
         best_epoch = -1
@@ -70,12 +75,17 @@ class Trainer:
 
         for epoch in range(cfg.max_epochs):
             self.model.train()
-            optimizer.zero_grad()
-            pred = self.model(X_ctrl, X_tgt)
-            loss = self.loss_fn(pred, y)
-            loss.backward()
-            optimizer.step()
-            train_losses.append(float(loss.item()))
+            perm = rng.permutation(n_train) if batch_size < n_train else np.arange(n_train)
+            epoch_losses = []
+            for start in range(0, n_train, batch_size):
+                idx = perm[start : start + batch_size]
+                optimizer.zero_grad()
+                pred = self.model(X_ctrl[idx], X_tgt[idx])
+                loss = self.loss_fn(pred, y[idx])
+                loss.backward()
+                optimizer.step()
+                epoch_losses.append(float(loss.item()))
+            train_losses.append(float(np.mean(epoch_losses)))
 
             self.model.eval()
             with torch.no_grad():
