@@ -458,3 +458,64 @@ is simply better.
 **Not done:** not re-run on real Arc data or the real-data pilot (would
 need EC2 again); no attention/transformer fusion tried as an alternative
 way to use the higher-dimensional descriptor.
+
+## 2026-11-05 — Full baseline ladder on REAL Arc data (AWS EC2, round 2)
+
+**Why:** direct owner request to test the richer co-expression descriptor
+on real data, since the synthetic fixture's result (descriptor hurt
+simpler models) was plausibly explained by only having 14 training
+targets. Real data has 150 targets (90 in train), a much fairer test.
+
+**Infrastructure:** a second temporary EC2 `m7i-flex.large` instance
+(same type as the real-data pilot; account still restricted to free-tier
+types), new key pair + security group (the originals were deleted after
+the first pilot), SSH restricted to the operator's IP. Terminated and all
+security group/key pair resources deleted immediately after pulling
+results; results (~8KB) mirrored to the existing S3 bucket at
+`s3://virtualcell-635863384351/baseline_ladder_real/`.
+
+**What was built:** `scripts/compare_baseline_ladder_real.py` — the same
+5-model ladder as `compare_baseline_ladder.py`, reusing
+`subsample_and_materialize` from `train_real_arc.py`, run under both
+`mean_std` and `coexpression` descriptors in one script so both share the
+identical data subsample and split.
+
+**Command run and actual result** (same subsample as the earlier real-
+data pilot: 10,960 cells, 1,000 genes, 150 targets, 90/30/30 split, 1,787
+test cells across 30 held-out targets):
+
+| model | mean/std MAE | improvement | coexpression MAE | improvement |
+|---|---|---|---|---|
+| no-effect | 1.056 | 0.0% | 1.056 | 0.0% |
+| seen-target mean | 1.056 | 0.0% | 1.056 | 0.0% |
+| **PCA + ridge** | **0.898** | **+15.0%** | 0.908 | +14.1% |
+| small MLP | 0.923 | +12.6% | 0.917 | +13.2% |
+| conditional model | 0.926 | +12.3% | 0.929 | +12.0% |
+
+**Headline honest finding:** on real data, **PCA+ridge — the simplest
+learned model — outperforms both the small MLP and the conditional
+model**, under both descriptors. This reverses the (weaker, less
+powered) synthetic-fixture pattern where PCA+ridge was the worst of the
+three. The richer co-expression descriptor still does not show a clear,
+consistent improvement with 90 real training targets, ruling out "not
+enough training targets" as the fixture's explanation — the honest
+read is that this specific hand-built descriptor just isn't adding
+much signal, on this data, computed this way.
+
+**Status vs. plan:** this is exactly the kind of result the plan's
+section 10 antipattern warns about avoiding — building complexity before
+confirming it beats simpler baselines — and now that comparison has
+actually been run on real data, not skipped. Full discussion in
+`docs/results.md`.
+
+**Not done / explicitly deferred:**
+- No ablations (control-removed, target-removed) run on real data for
+  the conditional model specifically — only the five-model ladder.
+- No investigation into WHY PCA+ridge wins (e.g. whether the conditional
+  model is undertrained — only trained for up to 150 epochs with early
+  stopping on this noisy real subsample — or whether its extra
+  parameters are simply unneeded at this data scale).
+- No hyperparameter tuning for ridge's alpha, PCA's n_components, the
+  MLP's hidden_dim, or the conditional model's architecture — all left
+  at the same defaults used throughout this project for a fair, simple
+  comparison, not because they are known to be optimal.

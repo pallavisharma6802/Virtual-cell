@@ -175,20 +175,83 @@ hundreds of training targets (like the actual Arc data, which has 150
 targets total) would be a fairer test of whether this kind of descriptor
 helps, and was not re-tested here.
 
-## Conclusions (synthetic fixture only)
+## Full baseline ladder on REAL data (both descriptors)
+
+The whole baseline ladder (no-effect, seen-target mean, PCA+ridge, small
+MLP, conditional model) was re-run on the real Arc data pilot (same
+10,960-cell / 1,000-gene / 150-target subsample as the real-data pilot
+above, 90/30/30 train/val/test targets, 1,787 test cells — 30 held-out
+targets, a far better-powered comparison than the synthetic fixture's 5),
+under both the weak (mean/std) and richer (co-expression) target
+descriptors.
+
+| model | mean/std MAE | improvement | co-expression MAE | improvement |
+|---|---|---|---|---|
+| No-effect | 1.056 | 0.0% | 1.056 | 0.0% |
+| Seen-target mean | 1.056 | 0.0% (expected fallback) | 1.056 | 0.0% |
+| **PCA + ridge** | **0.898** | **+15.0%** | 0.908 | +14.1% |
+| Small MLP | 0.923 | +12.6% | 0.917 | +13.2% |
+| Conditional model | 0.926 | +12.3% | 0.929 | +12.0% |
+
+**Headline, real-data finding, not softened:**
+
+1. **On real data, PCA + ridge — the simplest model with the plan's
+   earliest, most basic baseline — wins outright**, beating the small
+   MLP and the conditional model under both descriptors. This is a
+   materially different outcome from the synthetic fixture, where PCA+
+   ridge was the weakest of the three learned models. It means the extra
+   complexity this project built (the conditional model's separate
+   encoders/fusion) is not currently justified by the evidence on real
+   data — a plain linear-on-PCA-components model does at least as well.
+2. **The richer co-expression descriptor still does not clearly help on
+   real data**, even with 90 training targets (far more than the
+   synthetic fixture's 14, ruling out "too few targets" as the
+   explanation this time): PCA+ridge gets slightly worse (+15.0% →
+   +14.1%), small MLP gets marginally better (+12.6% → +13.2%), and the
+   conditional model is flat-to-slightly-worse (+12.3% → +12.0%). None
+   of these differences look large relative to the bootstrap CI widths
+   (~±0.03 MAE). The honest conclusion is that this specific co-
+   expression descriptor, computed this way, is not demonstrating value
+   over the weak 2-scalar one on this dataset — not that richer
+   descriptors can't help in principle, but that this particular
+   hand-built one doesn't clear that bar here.
+3. All three learned models (ridge, MLP, conditional) comfortably beat
+   no-effect (+12–15%), so there IS real, consistent predictive signal in
+   control-conditioned modeling of perturbation response — the open
+   question is which model architecture captures it best, and on this
+   evidence it's currently the simplest one.
+
+Full JSON: `outputs/baseline_ladder_real/baseline_ladder_real.json`,
+mirrored in S3 at `s3://virtualcell-635863384351/baseline_ladder_real/`.
+
+## Conclusions
 
 - **H1 (conditional model beats no-effect baseline on held-out targets):**
-  weakly supported on this fixture — 18.9% pooled MAE improvement
-  (Milestone 3), positive but modest per-target Pearson/Spearman
-  correlations (0.31–0.50).
+  supported on BOTH synthetic (18.9%) and real data (12.3%), but the
+  real-data baseline ladder shows a *simpler* model (PCA+ridge, +15.0%)
+  beats the conditional model there — so H1 holds for "some learned
+  model," not specifically for the conditional architecture over simpler
+  alternatives.
 - **H2 (control-conditioning improves over perturbation-only input):**
-  supported — `ablation_no_control` collapsed to ~no-effect-baseline
-  performance (Milestone 3), confirming control context materially
-  contributes.
+  supported on the synthetic fixture — `ablation_no_control` collapsed to
+  ~no-effect-baseline performance (Milestone 3). Not re-tested as an
+  ablation on real data this session (only the full PCA+ridge/MLP/
+  conditional comparison was run there, not a control-removed ablation
+  of each).
 - **H3 (persists across a harder context split):** not yet tested — no
-  secondary batch/donor split has been built or evaluated.
-- **Gene-level identification of DE genes:** not supported by this
-  model/descriptor on this fixture (near-chance precision/recall@20).
+  secondary batch/donor split has been built or evaluated, synthetic or
+  real.
+- **Gene-level identification of DE genes:** not supported by the
+  conditional model/weak descriptor on the synthetic fixture (near-chance
+  precision/recall@20). Not re-tested on real data.
+- **Does architecture complexity help, and does a richer target
+  descriptor help?** On real data, specifically: no to both, by this
+  evidence. The simplest baseline (PCA+ridge) currently wins, and the
+  richer co-expression descriptor doesn't clearly improve any model. This
+  is the most important and most surprising finding of the full baseline
+  ladder, and it argues for more baseline-vs-architecture investigation
+  before trusting the conditional model's added complexity, let alone
+  escalating further toward Milestone 5's pretrained foundation encoder.
 
 ## Limitations
 
