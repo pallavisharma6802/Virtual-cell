@@ -177,6 +177,47 @@ def build_arrays(dataset, manifest, cell_ids, scaler, gene_descriptors, seed):
     return matched_scaled, desc, delta, targets
 
 
+def hyperparameter_sweep_pca_ridge(train_ctrl, train_desc, train_delta, val_ctrl, val_desc, val_delta):
+    """Grid search over PCA+ridge's n_components and alpha, selected by
+    validation MAE — same principle as the conditional model's sweep,
+    so the comparison in metrics.json is no longer "tuned conditional
+    model vs. untouched baselines"."""
+    n_comp_options = [10, 20, 50]
+    alpha_options = [0.1, 1.0, 10.0]
+    results = []
+    best = None
+    for n_comp in n_comp_options:
+        n_comp_capped = min(n_comp, train_ctrl.shape[0], train_ctrl.shape[1])
+        for alpha in alpha_options:
+            model = PCARidgeBaseline(n_components=n_comp_capped, alpha=alpha).fit(train_ctrl, train_desc, train_delta)
+            val_pred = model.predict_delta(val_ctrl, val_desc)
+            val_mae = mae(val_delta, val_pred)
+            row = {"n_components": n_comp_capped, "alpha": alpha, "val_mae": val_mae}
+            results.append(row)
+            print(f"  pca_ridge sweep {row}")
+            if best is None or val_mae < best[0]:
+                best = (val_mae, {"n_components": n_comp_capped, "alpha": alpha}, model)
+    return best[1], best[2], results
+
+
+def hyperparameter_sweep_small_mlp(train_ctrl, train_desc, train_delta, val_ctrl, val_desc, val_delta, seed):
+    """Grid search over the small MLP baseline's hidden_dim, selected by
+    validation MAE."""
+    hidden_dim_options = [32, 64, 128, 256]
+    results = []
+    best = None
+    for hidden_dim in hidden_dim_options:
+        model = SmallMLPBaseline(hidden_dim=hidden_dim, seed=seed, max_iter=400).fit(train_ctrl, train_desc, train_delta)
+        val_pred = model.predict_delta(val_ctrl, val_desc)
+        val_mae = mae(val_delta, val_pred)
+        row = {"hidden_dim": hidden_dim, "val_mae": val_mae}
+        results.append(row)
+        print(f"  small_mlp sweep {row}")
+        if best is None or val_mae < best[0]:
+            best = (val_mae, {"hidden_dim": hidden_dim}, model)
+    return best[1], best[2], results
+
+
 def hyperparameter_sweep(train_ctrl, train_desc, train_delta, val_ctrl, val_desc, val_delta, n_genes, seed):
     """Small, bounded grid search over the conditional model's capacity
     and learning rate, selected by validation loss. Kept small to stay
@@ -237,14 +278,21 @@ def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_s
     seen_mean_pred = seen_mean.predict_delta(test_targets)
     results["2_seen_target_mean"] = {"mae": mae(test_delta, seen_mean_pred)}
 
-    pca_n = min(20, train_ctrl.shape[0], train_ctrl.shape[1])
-    pca_ridge = PCARidgeBaseline(n_components=pca_n, alpha=1.0).fit(train_ctrl, train_desc, train_delta)
-    pca_ridge_pred = pca_ridge.predict_delta(test_ctrl, test_desc)
-    results["3_pca_ridge"] = {"mae": mae(test_delta, pca_ridge_pred)}
+    print("Running PCA+ridge hyperparameter sweep...")
+    pca_ridge_best_cfg, pca_ridge_best_model, pca_ridge_sweep_results = hyperparameter_sweep_pca_ridge(
+        train_ctrl, train_desc, train_delta, val_ctrl, val_desc, val_delta
+    )
+    print(f"Best PCA+ridge config: {pca_ridge_best_cfg}")
+    pca_ridge_pred = pca_ridge_best_model.predict_delta(test_ctrl, test_desc)
+    results["3_pca_ridge_tuned"] = {"mae": mae(test_delta, pca_ridge_pred), "best_config": pca_ridge_best_cfg}
 
-    small_mlp = SmallMLPBaseline(hidden_dim=64, seed=seed).fit(train_ctrl, train_desc, train_delta)
-    small_mlp_pred = small_mlp.predict_delta(test_ctrl, test_desc)
-    results["4_small_mlp"] = {"mae": mae(test_delta, small_mlp_pred)}
+    print("Running small-MLP hyperparameter sweep...")
+    small_mlp_best_cfg, small_mlp_best_model, small_mlp_sweep_results = hyperparameter_sweep_small_mlp(
+        train_ctrl, train_desc, train_delta, val_ctrl, val_desc, val_delta, seed
+    )
+    print(f"Best small MLP config: {small_mlp_best_cfg}")
+    small_mlp_pred = small_mlp_best_model.predict_delta(test_ctrl, test_desc)
+    results["4_small_mlp_tuned"] = {"mae": mae(test_delta, small_mlp_pred), "best_config": small_mlp_best_cfg}
 
     print("Running conditional-model hyperparameter sweep...")
     best_cfg, best_trainer, sweep_results = hyperparameter_sweep(
@@ -275,7 +323,9 @@ def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_s
         },
         "no_effect_mae_reference": no_effect_mae,
         "models": results,
-        "hyperparameter_sweep": sweep_results,
+        "hyperparameter_sweep_conditional_model": sweep_results,
+        "hyperparameter_sweep_pca_ridge": pca_ridge_sweep_results,
+        "hyperparameter_sweep_small_mlp": small_mlp_sweep_results,
         "conditional_model_grouped_bootstrap_ci_mae": report["grouped_bootstrap_ci_mae"],
         "conditional_model_worst_3_targets": report["worst_3_targets_by_mae"],
     }
