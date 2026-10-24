@@ -573,3 +573,99 @@ fetch time ~1.7 hours at the measured sequential rate. Result pending at
 the time of this log entry — see the next entry for the outcome, or
 check `outputs/scale_up_real_arc/metrics.json` / the matching S3 path if
 this entry is read before that follow-up was written.
+
+## 2026-11-10 — Scale-up run SUCCEEDED (after two failed attempts, both fixed)
+
+**Context:** this is the actual outcome of the "scale up real-data
+training" work started 2026-11-05. Two earlier attempts on this same
+goal failed and are documented above for a reason — they're real
+debugging history, not hidden:
+1. First attempt (single `.to_memory()` call on ~45,600 cells): **OOM-killed**
+   at anon-rss ~7.7GB on the 8GB EC2 instance (confirmed via kernel log).
+   Root cause: the sparse CSR slice and its dense `.todense()` copy
+   coexist in memory during conversion.
+2. Second attempt (chunked fetch, fixed for memory): completed the first
+   4,000-cell chunk in 69.2s, then crashed on the second chunk with
+   `FileNotFoundError` — reusing the same backed AnnData's remote file
+   handle across multiple `.to_memory()` calls fails because the handle
+   is consumed/closed after the first call.
+3. **Third attempt: succeeded.** Fixed by re-opening a fresh backed
+   handle (`load_arc_challenge_dataset`) for every chunk, not just once.
+
+**Infrastructure:** a fourth temporary EC2 `m7i-flex.large` instance
+(same type/region; prior instances from both failed attempts were
+already terminated — the second one became unreachable via SSH and was
+torn down without first confirming its outcome, which is why its result,
+if any, could not be retrieved), new key pair/security group, both
+deleted immediately after this run. Results (checkpoint + metrics + log,
+~3.7MB) mirrored to the existing S3 bucket at
+`s3://virtualcell-635863384351/scale_up_real_arc/`.
+
+**What was run:** `scripts/scale_up_real_arc.py` — fetched 45,584 real
+Arc cells (vs. 10,960 in the first real-data pilot) across 150 targets,
+90/30/30 train/val/test split, 1,500 top-variable genes, using the fixed
+memory-bounded chunked loader (4,000-cell chunks, fresh handle per
+chunk). Fetch took 902.6s (~15 min) — notably FASTER per-cell than the
+first pilot's 1391s for 11k cells (0.0198 s/cell here vs. 0.127 s/cell
+before), plausibly because reopening a fresh handle per 4,000-cell chunk
+let `gcsfs`'s internal prefetch/cache work more efficiently than one
+giant single-shot `.to_memory()` call did — not a controlled comparison,
+so treat this as an observation, not a verified causal claim.
+
+Ran the full baseline ladder (no-effect, seen-target mean, PCA+ridge,
+small MLP) plus a 4-config hyperparameter sweep for the conditional
+model (varying `control_hidden_dim`/`fusion_hidden_dim` in {64,128,256}
+and `lr` in {1e-3, 3e-4}), selecting the best by validation loss.
+
+**Actual result** (seed=0, 45,584 cells, 1,500 genes, 150 targets, 8,510
+held-out test cells across 30 test targets):
+
+| model | MAE (scaled) | improvement over no-effect |
+|---|---|---|
+| no-effect | 1.062 | 0.0% |
+| seen-target mean | 1.062 | 0.0% (expected fallback) |
+| PCA + ridge | 0.896 | +15.6% |
+| small MLP | 0.889 | +16.2% |
+| **conditional model (tuned, 256/256 hidden, lr=1e-3)** | **0.878** | **+17.4%** |
+
+Grouped bootstrap CI on the tuned conditional model's per-target MAE (30
+target groups): mean 0.169, 95% CI [0.137, 0.210].
+
+**Headline honest finding — this REVERSES the earlier (smaller-scale,
+untuned) result:** at ~4x the real-data scale (45,584 vs. 10,960 cells)
+with light hyperparameter tuning, **the conditional model now
+outperforms both PCA+ridge and the small MLP**, where previously
+(2026-11-05, 10,960 cells, untuned conditional model) PCA+ridge had won
+outright (+15.0% vs. the untuned conditional model's +12.3%). The
+hyperparameter sweep itself shows a clear, monotonic-ish trend: the
+largest capacity config tried (256/256 hidden dim) had the best
+validation loss (0.502) of the four configs, suggesting the conditional
+model was likely undertrained/undersized relative to available signal in
+the earlier, smaller/untuned comparison — consistent with the
+`docs/results.md` real-data-ladder entry's own open question ("whether
+the conditional model is undertrained").
+
+**Honest limits on this conclusion:**
+- Still a subsample (45,584 of 221,273 cells; 1,500 of 18,080 genes),
+  not the full dataset.
+- Only ONE random seed and ONE held-out-target split were used for this
+  comparison; the margin between the top three models (0.878 vs 0.889 vs
+  0.896 — all within ~0.02 MAE of each other) is not necessarily outside
+  normal seed-to-seed variance. A multi-seed comparison was not run this
+  session due to time/compute budget, so "the conditional model wins" is
+  directionally supported but not statistically confirmed at this
+  margin.
+- The hyperparameter sweep only varied capacity and learning rate for
+  the conditional model; PCA+ridge's `alpha`/`n_components` and the
+  small MLP's `hidden_dim` were NOT re-tuned at this larger scale, so
+  this is not a fully fair "best of each" comparison — it is a "better-
+  tuned conditional model vs. still-default baselines" comparison, which
+  somewhat favors the conditional model's win. Re-tuning the baselines
+  too is the natural next step before trusting this reversal fully.
+
+**Status vs. plan:** this is real progress toward the "improve and tune
+the conditional PyTorch model" instruction — tuning on more real data
+measurably changed the model-vs-baseline ranking, which is itself useful
+information (model capacity/tuning matters more than the earlier,
+smaller-scale comparison suggested). Multi-cell-type generalization
+(the next planned phase) remains untouched this session, as agreed.

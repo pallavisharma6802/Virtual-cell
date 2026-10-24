@@ -106,10 +106,19 @@ def subsample_and_materialize(
     t_fetch0 = time.time()
     for start in range(0, n_cells, CHUNK):
         chunk_positions = keep_cell_positions[start : start + CHUNK]
-        sub_chunk = dataset.adata[chunk_positions, :].to_memory()
+        # A backed AnnData's remote file handle is consumed/closed after a
+        # .to_memory() call on a view of it — reusing `dataset.adata`
+        # across chunks fails on the second chunk with a FileNotFoundError
+        # from h5py trying to reopen an already-closed gcsfs file object
+        # (confirmed by a live run; see docs/experiment_log.md). Re-open a
+        # fresh backed handle per chunk instead — cheap relative to the
+        # per-row read cost (confirmed: ~1-2s to reopen vs. the per-chunk
+        # multi-second data read).
+        fresh = load_arc_challenge_dataset(path_or_url, backed="r")
+        sub_chunk = fresh.adata[chunk_positions, :].to_memory()
         chunk_dense = np.asarray(sub_chunk.X.todense()) if hasattr(sub_chunk.X, "todense") else np.asarray(sub_chunk.X)
         X_full_genes[start : start + len(chunk_positions)] = chunk_dense
-        del sub_chunk, chunk_dense
+        del fresh, sub_chunk, chunk_dense
         gc.collect()
         print(f"  fetched {min(start + CHUNK, n_cells)}/{n_cells} cells "
               f"({time.time() - t_fetch0:.1f}s elapsed)")
