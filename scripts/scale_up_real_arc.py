@@ -63,11 +63,23 @@ def subsample_and_materialize(
     before this run. It was SLOWER (0.29s/cell vs. 0.127s/cell for the
     sequential anndata-backed `.to_memory()` slice), almost certainly
     because each worker re-opens the full remote HDF5 file's metadata
-    independently. That optimization is not used here — this function
-    deliberately uses the plain sequential path, which is the one
-    actually measured to work. See docs/experiment_log.md for the
-    measurement and this decision.
+    independently. That optimization is not used here.
+
+    NOTE on memory: fetching all requested cells in one
+    `.to_memory()` call OOM-killed an 8GB instance at ~45,600 cells —
+    the sparse CSR slice and its dense `.todense()` copy coexist in
+    memory during conversion, roughly doubling peak RAM, and that
+    exceeded 8GB well before the target cell count. Fixed here by
+    fetching and densifying in bounded-size CHUNKS, writing each chunk
+    directly into a preallocated float32 array and freeing the chunk's
+    intermediate sparse/dense objects (`del` + `gc.collect()`) before
+    the next chunk — peak memory is then bounded by chunk size, not
+    total cell count, which is the actual "memory-efficient loading"
+    this milestone needs. See docs/experiment_log.md for the OOM and
+    this fix.
     """
+    import gc
+
     rng = np.random.default_rng(seed)
     obs = dataset.adata.obs
     ctrl_mask = dataset.control_mask()
@@ -85,11 +97,24 @@ def subsample_and_materialize(
     keep_cell_positions.extend(ctrl_sample.tolist())
 
     keep_cell_positions = sorted(set(keep_cell_positions))
-    print(f"Fetching {len(keep_cell_positions)} cells from GCS (sequential, proven path)...")
-    sub = dataset.adata[keep_cell_positions, :].to_memory()
-    X_full_genes = np.asarray(sub.X.todense()) if hasattr(sub.X, "todense") else np.asarray(sub.X)
+    n_cells = len(keep_cell_positions)
+    n_genes_full = dataset.adata.n_vars
+    print(f"Fetching {n_cells} cells from GCS in memory-bounded chunks...")
 
-    sub_obs = sub.obs
+    CHUNK = 4000
+    X_full_genes = np.empty((n_cells, n_genes_full), dtype=np.float32)
+    t_fetch0 = time.time()
+    for start in range(0, n_cells, CHUNK):
+        chunk_positions = keep_cell_positions[start : start + CHUNK]
+        sub_chunk = dataset.adata[chunk_positions, :].to_memory()
+        chunk_dense = np.asarray(sub_chunk.X.todense()) if hasattr(sub_chunk.X, "todense") else np.asarray(sub_chunk.X)
+        X_full_genes[start : start + len(chunk_positions)] = chunk_dense
+        del sub_chunk, chunk_dense
+        gc.collect()
+        print(f"  fetched {min(start + CHUNK, n_cells)}/{n_cells} cells "
+              f"({time.time() - t_fetch0:.1f}s elapsed)")
+
+    sub_obs = obs.iloc[keep_cell_positions].copy()
     sub_var = dataset.adata.var.copy()
 
     sub_ctrl_mask = sub_obs["is_control"].to_numpy()
