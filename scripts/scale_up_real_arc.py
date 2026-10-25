@@ -32,7 +32,11 @@ from virtualcell.data.arc_adapter import ARC_CHALLENGE_TRAIN_URL, load_arc_chall
 from virtualcell.data.control_sampling import sample_matched_controls
 from virtualcell.data.preprocess import fit_scaler
 from virtualcell.data.splits import held_out_target_split
-from virtualcell.data.target_descriptors import descriptor_for_targets, fit_control_mean_std_descriptors
+from virtualcell.data.target_descriptors import (
+    descriptor_for_targets,
+    fit_coexpression_descriptors,
+    fit_control_mean_std_descriptors,
+)
 from virtualcell.evaluation.metrics import grouped_bootstrap_ci, improvement_over_no_effect, mae, rmse
 from virtualcell.evaluation.report import build_full_report
 from virtualcell.models.baselines import NoEffectBaseline, PCARidgeBaseline, SeenTargetMeanBaseline, SmallMLPBaseline
@@ -153,14 +157,14 @@ def subsample_and_materialize(
     )
 
 
-def build_arrays(dataset, manifest, cell_ids, scaler, gene_descriptors, seed):
+def build_arrays(dataset, manifest, cell_ids, scaler, gene_descriptors, descriptor_dim, seed):
     obs = dataset.adata.obs
     ctrl_mask = dataset.control_mask()
     pert_mask = obs.index.isin(cell_ids) & (~ctrl_mask)
     pert_cell_ids = list(obs.index[pert_mask])
     if not pert_cell_ids:
         n_genes = dataset.n_genes
-        return (np.zeros((0, n_genes), dtype=np.float32), np.zeros((0, 2), dtype=np.float32),
+        return (np.zeros((0, n_genes), dtype=np.float32), np.zeros((0, descriptor_dim), dtype=np.float32),
                 np.zeros((0, n_genes), dtype=np.float32), [])
     index_list = list(obs.index)
     positions = [index_list.index(c) for c in pert_cell_ids]
@@ -173,7 +177,7 @@ def build_arrays(dataset, manifest, cell_ids, scaler, gene_descriptors, seed):
 
     delta = X_scaled - matched_scaled
     targets = obs.loc[pert_cell_ids, "perturbation_id"].tolist()
-    desc = descriptor_for_targets(targets, gene_descriptors)
+    desc = descriptor_for_targets(targets, gene_descriptors, descriptor_dim=descriptor_dim)
     return matched_scaled, desc, delta, targets
 
 
@@ -218,7 +222,7 @@ def hyperparameter_sweep_small_mlp(train_ctrl, train_desc, train_delta, val_ctrl
     return best[1], best[2], results
 
 
-def hyperparameter_sweep(train_ctrl, train_desc, train_delta, val_ctrl, val_desc, val_delta, n_genes, seed):
+def hyperparameter_sweep(train_ctrl, train_desc, train_delta, val_ctrl, val_desc, val_delta, n_genes, descriptor_dim, seed):
     """Small, bounded grid search over the conditional model's capacity
     and learning rate, selected by validation loss. Kept small to stay
     within the agreed compute budget, not exhaustive."""
@@ -232,7 +236,7 @@ def hyperparameter_sweep(train_ctrl, train_desc, train_delta, val_ctrl, val_desc
     best = None
     for cfg in configs:
         model_config = ConditionalModelConfig(
-            n_genes=n_genes, target_descriptor_dim=2,
+            n_genes=n_genes, target_descriptor_dim=descriptor_dim,
             control_hidden_dim=cfg["control_hidden_dim"], fusion_hidden_dim=cfg["fusion_hidden_dim"],
         )
         train_config = TrainConfig(seed=seed, max_epochs=100, patience=12, lr=cfg["lr"], batch_size=256)
@@ -247,7 +251,7 @@ def hyperparameter_sweep(train_ctrl, train_desc, train_delta, val_ctrl, val_desc
 
 
 def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_size: int,
-        n_top_genes: int, n_workers: int) -> dict:
+        n_top_genes: int, n_workers: int, descriptor: str = "mean_std", n_components: int = 20) -> dict:
     print("Loading Arc Virtual Cell Challenge dataset (backed mode)...")
     full_dataset = load_arc_challenge_dataset(ARC_CHALLENGE_TRAIN_URL, backed="r")
     t0 = time.time()
@@ -263,11 +267,17 @@ def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_s
     print(f"Split: {len(manifest.train_targets)} train / {len(manifest.val_targets)} val / {len(manifest.test_targets)} test targets")
 
     scaler = fit_scaler(dataset, manifest)
-    gene_descriptors = fit_control_mean_std_descriptors(dataset, manifest)
+    if descriptor == "coexpression":
+        print(f"Fitting co-expression target descriptor (n_components={n_components})...")
+        gene_descriptors = fit_coexpression_descriptors(dataset, manifest, n_components=n_components, seed=seed)
+        descriptor_dim = min(n_components, dataset.n_genes)
+    else:
+        gene_descriptors = fit_control_mean_std_descriptors(dataset, manifest)
+        descriptor_dim = 2
 
-    train_ctrl, train_desc, train_delta, _ = build_arrays(dataset, manifest, manifest.train_cell_ids, scaler, gene_descriptors, seed)
-    val_ctrl, val_desc, val_delta, _ = build_arrays(dataset, manifest, manifest.val_cell_ids, scaler, gene_descriptors, seed)
-    test_ctrl, test_desc, test_delta, test_targets = build_arrays(dataset, manifest, manifest.test_cell_ids, scaler, gene_descriptors, seed)
+    train_ctrl, train_desc, train_delta, _ = build_arrays(dataset, manifest, manifest.train_cell_ids, scaler, gene_descriptors, descriptor_dim, seed)
+    val_ctrl, val_desc, val_delta, _ = build_arrays(dataset, manifest, manifest.val_cell_ids, scaler, gene_descriptors, descriptor_dim, seed)
+    test_ctrl, test_desc, test_delta, test_targets = build_arrays(dataset, manifest, manifest.test_cell_ids, scaler, gene_descriptors, descriptor_dim, seed)
     no_effect_mae = mae(test_delta, np.zeros_like(test_delta))
 
     results = {}
@@ -296,7 +306,7 @@ def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_s
 
     print("Running conditional-model hyperparameter sweep...")
     best_cfg, best_trainer, sweep_results = hyperparameter_sweep(
-        train_ctrl, train_desc, train_delta, val_ctrl, val_desc, val_delta, dataset.n_genes, seed
+        train_ctrl, train_desc, train_delta, val_ctrl, val_desc, val_delta, dataset.n_genes, descriptor_dim, seed
     )
     print(f"Best config: {best_cfg}")
     conditional_pred = best_trainer.predict_delta(test_ctrl, test_desc)
@@ -312,6 +322,8 @@ def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_s
 
     summary = {
         "pilot_note": f"SCALED-UP subsample: {dataset.n_cells} cells (full dataset has 221,273).",
+        "descriptor": descriptor,
+        "descriptor_dim": descriptor_dim,
         "dataset": {
             "n_cells": dataset.n_cells, "n_genes": dataset.n_genes,
             "n_targets": len(dataset.targets()), "fetch_time_seconds": fetch_time,
@@ -341,10 +353,13 @@ def main() -> None:
     parser.add_argument("--control-sample-size", type=int, default=3000)
     parser.add_argument("--n-top-genes", type=int, default=1500)
     parser.add_argument("--n-workers", type=int, default=12)
+    parser.add_argument("--descriptor", choices=["mean_std", "coexpression"], default="mean_std")
+    parser.add_argument("--n-components", type=int, default=20)
     args = parser.parse_args()
     summary = run(
         args.output_dir, seed=args.seed, cells_per_target_cap=args.cells_per_target_cap,
         control_sample_size=args.control_sample_size, n_top_genes=args.n_top_genes, n_workers=args.n_workers,
+        descriptor=args.descriptor, n_components=args.n_components,
     )
     print(json.dumps({k: v for k, v in summary.items() if k != "per_target"}, indent=2, default=str))
 
