@@ -264,17 +264,69 @@ inherently weaker than simpler baselines.
   model is the better architecture, full stop."
 - Still a subsample: 45,584 of 221,273 cells, 1,500 of 18,080 genes.
 
+## Fair retuned comparison: the small MLP wins (a SECOND reversal)
+
+The limitation above was addressed directly: PCA+ridge
+(`n_components` x `alpha` grid) and the small MLP (`hidden_dim` grid)
+were each given their own hyperparameter sweep, selected by validation
+MAE — the same protocol already used for the conditional model. Same
+45,584-cell subsample and split, so directly comparable to the table
+above.
+
+| model (all tuned) | MAE (scaled) | improvement over no-effect | best config |
+|---|---|---|---|
+| PCA + ridge | 0.885 | +16.6% | n_components=50, alpha=10.0 |
+| **Small MLP** | **0.859** | **+19.1%** | hidden_dim=256 |
+| Conditional model | 0.878 | +17.4% | 256/256 hidden, lr=1e-3 |
+
+Full JSON: `outputs/scale_up_real_arc_retuned/metrics.json`, mirrored at
+`s3://virtualcell-635863384351/scale_up_real_arc_retuned/`.
+
+**Once the comparison is actually fair, the small MLP wins outright —
+not the conditional model.** The previous section's "conditional model
+wins" was an artifact of comparing a tuned model against untuned
+baselines, exactly the limitation flagged there. This is the project's
+most important finding to date, and it is an uncomfortable one: the
+architecture this project invested the most engineering effort in
+(separate control/target encoders + fusion) has, on every real-data
+comparison run so far, never clearly and fairly beaten a much simpler
+single-hidden-layer MLP over the same two input blocks.
+
+**Full picture across all three real-data comparisons run this project:**
+
+| comparison | winner | conditional model's rank |
+|---|---|---|
+| 10,960 cells, nothing tuned | PCA+ridge | 3rd of 3 |
+| 45,584 cells, only conditional model tuned | conditional model | 1st of 3 (unfairly) |
+| 45,584 cells, all three fairly tuned | **small MLP** | 2nd of 3 |
+
+**What this does and doesn't mean:**
+- It does NOT mean control-conditioned modeling fails — all three
+  learned models beat no-effect by +16-19%, a real, repeatable signal.
+- It does NOT mean the conditional model is broken — only that its
+  specific architectural choices (separate encoders, fusion) haven't
+  shown a clear, fair edge over simpler alternatives yet, at this data
+  scale, with this target descriptor.
+- It DOES mean that escalating further toward a bigger/more complex
+  model (Milestone 5's pretrained foundation encoder) without first
+  understanding this result would repeat the exact mistake the plan's
+  antipattern list warns against.
+- The margins are still small (0.859 to 0.885, within 0.026 MAE) and
+  only one seed/split was tested — this ranking itself could still flip
+  with different data or a different random seed. Multi-seed replication
+  is the single most important missing piece before treating any of
+  these three rankings as settled.
+
 ## Conclusions
 
 - **H1 (conditional model beats no-effect baseline on held-out targets):**
-  supported on synthetic (18.9%), real small-scale untuned (12.3%, where
-  it trailed PCA+ridge's 15.0%), AND real scaled-up tuned data (17.4%,
-  where it narrowly led PCA+ridge's 15.6% and the small MLP's 16.2%).
-  Net read: H1 holds robustly for "some learned model," and the
-  conditional-model-specifically version of H1 is directionally
-  supported at larger scale with tuning, but not confirmed beyond a
-  single-seed, ~0.02-MAE margin over simpler baselines that weren't
-  equally retuned.
+  supported throughout for "some learned model" (+16-19% over no-effect
+  in every real-data comparison run). The conditional-model-specifically
+  version of H1 is NOT clearly supported: across the three real-data
+  comparisons run this project (untuned: 3rd of 3; conditional-only
+  tuned: 1st of 3, unfairly; all three fairly tuned: 2nd of 3, behind the
+  small MLP), the conditional model has never fairly and clearly beaten
+  the simplest nonlinear baseline. See "Fair retuned comparison" above.
 - **H2 (control-conditioning improves over perturbation-only input):**
   supported on the synthetic fixture — `ablation_no_control` collapsed to
   ~no-effect-baseline performance (Milestone 3). Not re-tested as an
@@ -287,20 +339,24 @@ inherently weaker than simpler baselines.
 - **Gene-level identification of DE genes:** not supported by the
   conditional model/weak descriptor on the synthetic fixture (near-chance
   precision/recall@20). Not re-tested on real data.
-- **Does architecture complexity help?** Mixed, and scale/tuning-
-  dependent: at the smaller, untuned real-data scale, no — PCA+ridge won.
-  At ~4x the data with a small tuning sweep, the conditional model edged
-  ahead. The honest summary is "it depends on scale and tuning effort,"
-  not a clean yes or no — and the margin at the larger scale is still
-  small enough that this isn't a confirmed, final answer.
+- **Does the conditional model's architecture complexity help?** No,
+  not clearly, by the best evidence available (the fair, all-tuned
+  comparison) — the small MLP currently wins. This is the project's
+  central open question going forward: either the architecture needs
+  rethinking, the target descriptor is the real bottleneck (most likely,
+  given it's shared and weak across all three models), or more
+  seeds/scale would change this ranking. Not yet determined which.
 - **Does a richer target descriptor help?** No, by this evidence — the
   co-expression descriptor didn't clearly improve any model at the
   smaller real-data scale, and was not re-tested at the larger scale this
   session.
-- This argues for retuning the baselines too (not just the conditional
-  model) at the larger scale before drawing a final conclusion, and
-  before escalating further toward Milestone 5's pretrained foundation
-  encoder.
+- **Before escalating to Milestone 5's pretrained foundation encoder:**
+  the evidence currently argues against it. A bigger model is unlikely
+  to help if a single hidden layer already beats the current conditional
+  architecture — the more promising lever is almost certainly a richer,
+  real target descriptor (a genuine pretrained gene representation would
+  test exactly this), not more architectural complexity on top of the
+  current weak one.
 
 ## Limitations
 

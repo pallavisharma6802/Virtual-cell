@@ -669,3 +669,89 @@ measurably changed the model-vs-baseline ranking, which is itself useful
 information (model capacity/tuning matters more than the earlier,
 smaller-scale comparison suggested). Multi-cell-type generalization
 (the next planned phase) remains untouched this session, as agreed.
+
+## 2026-11-10 — Fair retuned comparison: small MLP wins (second reversal)
+
+**Why:** the previous entry's "conditional model beats baselines" result
+only retuned the conditional model, leaving PCA+ridge and the small MLP
+at their original defaults — an explicitly flagged limitation. Owner
+asked to retune the baselines before trusting that result.
+
+**What was built:** `hyperparameter_sweep_pca_ridge` (grid over
+`n_components` in {10,20,50} x `alpha` in {0.1,1.0,10.0}, 9 configs) and
+`hyperparameter_sweep_small_mlp` (grid over `hidden_dim` in
+{32,64,128,256}, 4 configs) in `scripts/scale_up_real_arc.py`, both
+selected by validation MAE — the same principle already used for the
+conditional model's sweep. `tests` unaffected (41 pass, 1 skipped,
+confirmed before deploying).
+
+**Infrastructure:** a fifth temporary EC2 `m7i-flex.large` instance (same
+type/region), new key pair/security group, both deleted immediately
+after. Results (~3.7MB) mirrored to the existing S3 bucket at
+`s3://virtualcell-635863384351/scale_up_real_arc_retuned/`. This time the
+run was watched end-to-end via live log tailing until the result file
+was explicitly confirmed present, before touching any infrastructure —
+unlike the second scale-up attempt (2026-11-05/11-06), which was torn
+down on an SSH disconnect without confirming its outcome.
+
+**Command run and actual result** (same 45,584-cell / 1,500-gene / 150-
+target subsample and 90/30/30 split as the previous entry, so directly
+comparable):
+
+| model | MAE (scaled) | improvement over no-effect | best config |
+|---|---|---|---|
+| no-effect | 1.062 | 0.0% | — |
+| seen-target mean | 1.062 | 0.0% (expected fallback) | — |
+| PCA + ridge (tuned) | 0.885 | +16.6% | n_components=50, alpha=10.0 |
+| **small MLP (tuned)** | **0.859** | **+19.1%** | hidden_dim=256 |
+| conditional model (tuned) | 0.878 | +17.4% | 256/256 hidden, lr=1e-3 |
+
+**Headline, honest finding — a SECOND reversal, not smoothed over:**
+once all three models get a comparable tuning budget, **the small MLP
+baseline wins outright** (+19.1%), ahead of both the conditional model
+(+17.4%) and PCA+ridge (+16.6%). The previous entry's "conditional model
+wins" was an artifact of an unfair comparison (only it was retuned).
+With fair tuning, the simplest nonlinear baseline — not the architecture
+this project spent the most engineering effort on — is currently the
+best performer on this subsample.
+
+Pattern across all three real-data comparisons this project has run:
+
+| comparison | winner |
+|---|---|
+| 10,960 cells, nothing tuned | PCA+ridge |
+| 45,584 cells, only conditional model tuned | conditional model |
+| 45,584 cells, all three tuned | **small MLP** |
+
+**Honest reading:** more data and tuning clearly help (no-effect to
+~+17-19% is a real, repeatable signal), but which architecture wins is
+NOT stable across these three conditions — it has flipped every time the
+comparison protocol changed. This is a meaningful, if humbling, result:
+the conditional model's extra structure (separate control/target
+encoders + fusion) has not yet demonstrated a clear, fair advantage over
+much simpler alternatives on real data, at this scale, with this target
+descriptor. It is not refuted either — only one seed/split has been
+tested throughout, and the margins (0.859 vs 0.878 vs 0.885 — all within
+0.026 MAE) are not necessarily outside normal variance.
+
+**Status vs. plan:** this directly serves the plan's own antipattern
+warning (section 10: "build a giant transformer before baselines are
+reproducible") — the honest answer right now is that the baselines ARE
+competitive with, and in this fair comparison slightly ahead of, the
+conditional model. Continuing to add architecture complexity (Milestone
+5's pretrained encoder) without first understanding why would repeat
+exactly the mistake the plan warns against.
+
+**Not done / explicitly deferred:**
+- Multi-seed/multi-split replication to check if this ranking is stable
+  or seed noise — the single biggest gap before trusting any of these
+  three rankings as "the" answer.
+- Investigating WHY the small MLP's single hidden layer over
+  [control_profile, target_descriptor] concatenated directly outperforms
+  the conditional model's separate-encoders architecture — plausible
+  hypotheses (the fusion/separate-encoder structure adds capacity without
+  adding information, given the weak 2-scalar target descriptor) are not
+  yet tested.
+- Full dataset / full gene vocabulary.
+- Multi-cell-type generalization (remains the next explicitly agreed
+  phase, still untouched).
