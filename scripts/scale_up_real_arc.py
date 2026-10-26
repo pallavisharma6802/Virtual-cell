@@ -294,7 +294,12 @@ def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_s
     )
     print(f"Best PCA+ridge config: {pca_ridge_best_cfg}")
     pca_ridge_pred = pca_ridge_best_model.predict_delta(test_ctrl, test_desc)
-    results["3_pca_ridge_tuned"] = {"mae": mae(test_delta, pca_ridge_pred), "best_config": pca_ridge_best_cfg}
+    pca_ridge_train_mae = mae(train_delta, pca_ridge_best_model.predict_delta(train_ctrl, train_desc))
+    pca_ridge_val_mae = mae(val_delta, pca_ridge_best_model.predict_delta(val_ctrl, val_desc))
+    results["3_pca_ridge_tuned"] = {
+        "mae": mae(test_delta, pca_ridge_pred), "best_config": pca_ridge_best_cfg,
+        "train_mae": pca_ridge_train_mae, "val_mae": pca_ridge_val_mae,
+    }
 
     print("Running small-MLP hyperparameter sweep...")
     small_mlp_best_cfg, small_mlp_best_model, small_mlp_sweep_results = hyperparameter_sweep_small_mlp(
@@ -302,7 +307,12 @@ def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_s
     )
     print(f"Best small MLP config: {small_mlp_best_cfg}")
     small_mlp_pred = small_mlp_best_model.predict_delta(test_ctrl, test_desc)
-    results["4_small_mlp_tuned"] = {"mae": mae(test_delta, small_mlp_pred), "best_config": small_mlp_best_cfg}
+    small_mlp_train_mae = mae(train_delta, small_mlp_best_model.predict_delta(train_ctrl, train_desc))
+    small_mlp_val_mae = mae(val_delta, small_mlp_best_model.predict_delta(val_ctrl, val_desc))
+    results["4_small_mlp_tuned"] = {
+        "mae": mae(test_delta, small_mlp_pred), "best_config": small_mlp_best_cfg,
+        "train_mae": small_mlp_train_mae, "val_mae": small_mlp_val_mae,
+    }
 
     print("Running conditional-model hyperparameter sweep...")
     best_cfg, best_trainer, sweep_results = hyperparameter_sweep(
@@ -310,7 +320,12 @@ def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_s
     )
     print(f"Best config: {best_cfg}")
     conditional_pred = best_trainer.predict_delta(test_ctrl, test_desc)
-    results["5_conditional_model_tuned"] = {"mae": mae(test_delta, conditional_pred), "best_config": best_cfg}
+    conditional_train_mae = mae(train_delta, best_trainer.predict_delta(train_ctrl, train_desc))
+    conditional_val_mae = mae(val_delta, best_trainer.predict_delta(val_ctrl, val_desc))
+    results["5_conditional_model_tuned"] = {
+        "mae": mae(test_delta, conditional_pred), "best_config": best_cfg,
+        "train_mae": conditional_train_mae, "val_mae": conditional_val_mae,
+    }
 
     for name, r in results.items():
         r["improvement_over_no_effect"] = improvement_over_no_effect(r["mae"], no_effect_mae)
