@@ -821,3 +821,68 @@ likely explained by one of:
   small MLP baseline already is, recovers the gap).
 - Multi-seed replication of this specific finding.
 - Multi-cell-type generalization — remains the next agreed phase.
+
+## 2026-11-10 — Overfitting check: NOT overfitting, an optimization/fit issue
+
+**Why:** after ruling out the target descriptor, the remaining open
+hypotheses were (1) the conditional model overfits more than the small
+MLP, or (2) a performance ceiling / architecture efficiency issue.
+Checked by comparing train/val/test MAE for all three tuned models on
+the same mean_std-descriptor comparison (identical 45,584-cell
+subsample/split/hyperparameter grids as the earlier fair comparison).
+
+**Infrastructure note (process change):** per the owner's explicit
+instruction, this run used a NEW persistent EC2 instance
+(`m7i-flex.large`, tagged `virtualcell-working`) that is being kept
+running across experiments rather than terminated after each one, to
+avoid repeatedly paying the ~15 minute GCS data-fetch cost. It is NOT
+terminated as of this entry — see the top of the log (or ask the
+session) for its current status before assuming it is still up.
+
+**Command run and actual result:**
+
+| model | train MAE | val MAE | test MAE | train→test gap |
+|---|---|---|---|---|
+| PCA + ridge | 0.882 | 0.888 | 0.885 | 0.003 |
+| Small MLP | 0.829 | 0.862 | 0.859 | 0.030 |
+| Conditional model | 0.845 | 0.882 | 0.878 | 0.033 |
+
+Full JSON: `outputs/scale_up_overfitting_check/metrics.json`.
+
+**Conclusive finding: this is NOT an overfitting difference.** The small
+MLP and conditional model have nearly identical train→test generalization
+gaps (0.030 vs 0.033) — so the conditional model is not overfitting more
+than the small MLP in any meaningful sense. What actually distinguishes
+them: **the small MLP fits the TRAINING data better too** (0.829 vs
+0.845 train MAE) — it is not winning by generalizing better from equal
+fit, it is winning by fitting better at every stage (train, val, and
+test). This rules out hypothesis (1) and points toward hypothesis (2)
+from the previous entry: the conditional model's separate-encoders-then-
+fusion architecture is less effective at fitting this data, not more
+prone to memorizing it. Plausible causes not yet isolated: harder
+optimization landscape from the extra structure, insufficient training
+budget (same epoch/patience settings were used for both), or the fusion
+step diluting information that concatenation preserves directly.
+
+PCA+ridge, as expected for a regularized linear model, shows essentially
+no train-test gap (0.003) — it is not overfitting either, it is simply
+underfitting relative to both neural models (worst test MAE of the
+three), consistent with it being a linear model applied to a
+plausibly-nonlinear relationship.
+
+**Status vs. plan:** this closes out the investigation chain requested
+by the owner (richer descriptor → ruled out; overfitting → ruled out).
+The honest remaining open question is whether the conditional model's
+specific architecture (not its capacity, not overfitting) needs
+rethinking, or whether more training budget/different optimization
+settings would close the gap — neither tested yet.
+
+**Not done / explicitly deferred:**
+- Training the conditional model for longer / with different
+  optimizer settings to see if the train-fit gap closes with more
+  budget (the sweep used the same max_epochs=100/patience=12 for all
+  configs, which may simply be insufficient for the more complex model).
+- Simplifying the conditional model's architecture (e.g. testing a
+  version closer to simple concatenation instead of separate encoders +
+  fusion) to directly test the "fusion dilutes information" hypothesis.
+- Multi-cell-type generalization — remains the next agreed phase.

@@ -348,10 +348,37 @@ about the architecture itself (separate encoders + fusion adding
 optimization difficulty without adding usable expressive power, given
 how simple these two input blocks are) or about a performance ceiling set
 by the data scale itself (45,584 cells is still a subsample), rather than
-input quality. Train/val/test MAE gaps per model (to check differential
-overfitting) were not compared this session and are the next concrete
-diagnostic step, ahead of any further architecture changes or escalating
-to a pretrained foundation encoder.
+input quality.
+
+## Overfitting check: it's NOT overfitting
+
+Checked directly: train/val/test MAE for all three tuned models, same
+subsample/split.
+
+| model | train MAE | val MAE | test MAE | train→test gap |
+|---|---|---|---|---|
+| PCA + ridge | 0.882 | 0.888 | 0.885 | 0.003 |
+| Small MLP | 0.829 | 0.862 | 0.859 | 0.030 |
+| Conditional model | 0.845 | 0.882 | 0.878 | 0.033 |
+
+**The small MLP and conditional model have nearly identical
+generalization gaps (0.030 vs 0.033) — the conditional model is NOT
+overfitting more.** What actually separates them: the small MLP fits the
+TRAINING data better too (0.829 vs 0.845). It wins at every stage, not
+by generalizing better from an equal fit. This rules out overfitting as
+the explanation and points to the architecture itself being less
+effective at fitting this data (harder optimization from the separate
+encoders + fusion structure, or simply needing a different training
+budget/schedule — neither isolated yet) rather than a capacity or
+overfitting problem. PCA+ridge shows almost no train-test gap, as
+expected for a regularized linear model — it is underfitting, not
+overfitting, and that's why it's the weakest of the three.
+
+**Investigation chain complete for now:** richer descriptor → ruled out;
+overfitting → ruled out. The open question is whether the conditional
+architecture needs rethinking (e.g., testing a version closer to plain
+concatenation) or just a different training budget — neither tested
+this session.
 
 ## Conclusions
 
