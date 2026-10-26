@@ -755,3 +755,69 @@ exactly the mistake the plan warns against.
 - Full dataset / full gene vocabulary.
 - Multi-cell-type generalization (remains the next explicitly agreed
   phase, still untouched).
+
+## 2026-11-10 — Investigating the gap: richer descriptor does NOT close it
+
+**Why:** owner asked to investigate why the small MLP beats the
+conditional model before moving to multi-cell-type data. Hypothesis:
+the shared 2-scalar target descriptor caps all models equally, so a
+richer descriptor might let the conditional model's extra structure
+(separate encoders + fusion) finally show an advantage.
+
+**What was built:** `scripts/scale_up_real_arc.py` parameterized with
+`--descriptor {mean_std,coexpression}` and `--n-components`, reusing the
+already-built `fit_coexpression_descriptors` (gene correlation profile,
+PCA-reduced) so the full fairly-tuned 5-model ladder can run under
+either descriptor on real data, not just the synthetic fixture.
+
+**Infrastructure:** a sixth temporary EC2 instance (same type/region),
+terminated with security group/key pair deleted immediately after
+pulling results. Results mirrored to
+`s3://virtualcell-635863384351/scale_up_coexpression/`.
+
+**Command run and actual result** (identical 45,584-cell subsample,
+split, and hyperparameter grids as the mean_std comparison, only the
+target descriptor changed):
+
+| model (all tuned) | mean/std MAE | mean/std improvement | coexpression MAE | coexpression improvement |
+|---|---|---|---|---|
+| PCA + ridge | 0.885 | +16.6% | 0.889 | +16.3% |
+| **Small MLP** | **0.859** | **+19.1%** | **0.861** | **+18.9%** |
+| Conditional model | 0.878 | +17.4% | 0.874 | +17.7% |
+
+**Conclusive, honest finding: the richer descriptor changes almost
+nothing.** Every model's MAE shifted by at most 0.004-0.005 between
+descriptors — well within normal run-to-run noise, and the ranking
+(small MLP > conditional model > PCA+ridge) is identical under both.
+**This rules out the target descriptor as the explanation for the small
+MLP's advantage.** The hypothesis going into this test — "a richer
+descriptor would let the conditional model's structure pay off" — is
+not supported by this evidence.
+
+**What this means for next steps:** since swapping the descriptor did
+essentially nothing, the small-MLP-beats-conditional-model gap is more
+likely explained by one of:
+1. The conditional model's separate-encoders-then-fusion architecture
+   adds optimization difficulty (more parameters to coordinate) without
+   adding expressive power the single-layer MLP lacks, given these two
+   input blocks are not complex enough to need separate processing.
+2. Both models are already near a performance ceiling set by the data
+   itself (45,584 cells, 1,500 genes, still a subsample) rather than by
+   either model's capacity — in which case neither architecture change
+   nor descriptor richness would move the needle much further without
+   more real data or a genuinely different kind of input (a real
+   pretrained gene representation, not a hand-engineered statistic of
+   any dimensionality).
+3. A regularization/overfitting difference not yet measured directly
+   (train vs. val vs. test MAE gaps were not compared across models this
+   session).
+
+**Not done / explicitly deferred:**
+- Directly comparing train/val/test MAE gaps per model to check for
+  differential overfitting (hypothesis 3).
+- Any change to the conditional model's architecture itself (e.g.
+  simplifying it, or testing whether removing the separate encoders in
+  favor of simple concatenation-then-MLP, which is close to what the
+  small MLP baseline already is, recovers the gap).
+- Multi-seed replication of this specific finding.
+- Multi-cell-type generalization — remains the next agreed phase.

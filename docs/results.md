@@ -317,6 +317,42 @@ single-hidden-layer MLP over the same two input blocks.
   is the single most important missing piece before treating any of
   these three rankings as settled.
 
+## Investigating the gap: a richer descriptor does NOT close it
+
+The obvious hypothesis for the small MLP's win is that the shared weak
+2-scalar target descriptor caps all models equally, hiding any real
+advantage of the conditional model's extra structure. This was tested
+directly: the same fully-tuned 5-model comparison was re-run on the
+identical 45,584-cell subsample and split, swapping only the target
+descriptor for the richer 20-dimensional co-expression profile built
+earlier (gene-gene correlation across train controls, PCA-reduced).
+
+| model (all tuned) | mean/std MAE | mean/std improvement | co-expression MAE | co-expression improvement |
+|---|---|---|---|---|
+| PCA + ridge | 0.885 | +16.6% | 0.889 | +16.3% |
+| **Small MLP** | **0.859** | **+19.1%** | **0.861** | **+18.9%** |
+| Conditional model | 0.878 | +17.4% | 0.874 | +17.7% |
+
+Full JSON: `outputs/scale_up_coexpression/metrics.json`, mirrored at
+`s3://virtualcell-635863384351/scale_up_coexpression/`.
+
+**Conclusive result: the richer descriptor changes almost nothing.**
+Every model moved by at most 0.004-0.005 MAE between descriptors — noise,
+not signal — and the ranking (small MLP > conditional model > PCA+ridge)
+is identical under both. **This rules out the target descriptor as the
+explanation for the gap.** The hypothesis that a richer descriptor would
+let the conditional model's structure pay off is not supported.
+
+This means the small-MLP-beats-conditional-model gap is more likely
+about the architecture itself (separate encoders + fusion adding
+optimization difficulty without adding usable expressive power, given
+how simple these two input blocks are) or about a performance ceiling set
+by the data scale itself (45,584 cells is still a subsample), rather than
+input quality. Train/val/test MAE gaps per model (to check differential
+overfitting) were not compared this session and are the next concrete
+diagnostic step, ahead of any further architecture changes or escalating
+to a pretrained foundation encoder.
+
 ## Conclusions
 
 - **H1 (conditional model beats no-effect baseline on held-out targets):**
