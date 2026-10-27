@@ -886,3 +886,63 @@ settings would close the gap — neither tested yet.
   version closer to simple concatenation instead of separate encoders +
   fusion) to directly test the "fusion dilutes information" hypothesis.
 - Multi-cell-type generalization — remains the next agreed phase.
+
+## 2026-11-10 — Longer training/optimization: also ruled out
+
+**Why:** per the owner's requested order (training budget → scale data →
+architecture/Milestone 5), tested whether the conditional model's gap vs.
+the small MLP is a training-budget/optimization issue — the last
+untested hypothesis from the investigation chain (descriptor: ruled out;
+overfitting: ruled out).
+
+**Infrastructure:** reused the PERSISTENT EC2 instance (`virtualcell-
+working`) kept running across experiments per the owner's instruction —
+NOT terminated after this run. Also added local disk caching to
+`subsample_and_materialize` (`.cache/subsample_{params}.npz`), so this
+run's ~15-minute GCS fetch was the last one needed for this particular
+45,584-cell subsample; future experiments on the same scale will load
+from cache instantly.
+
+**Command run and actual result** (`scripts/extended_training_conditional.py`,
+same 45,584-cell subsample/split as every prior comparison, 256/256
+hidden conditional model, 5 configs):
+
+| config | max_epochs | weight_decay | lr | best_epoch | train MAE | test MAE | improvement |
+|---|---|---|---|---|---|---|---|
+| original_short (reference) | 100 | 1e-5 | 1e-3 | 24 | 0.845 | 0.878 | +17.4% |
+| longer_training | 500 | 1e-5 | 1e-3 | 62 | 0.827 | 0.878 | +17.3% |
+| longer_training_more_reg | 500 | 1e-4 | 1e-3 | 74 | 0.860 | 0.882 | +17.0% |
+| longer_training_less_reg | 500 | 1e-6 | 1e-3 | 47 | 0.825 | **0.875** | **+17.6% (best)** |
+| longer_training_lower_lr | 800 | 1e-5 | 3e-4 | 102 | 0.816 | 0.882 | +16.9% |
+
+Reference: small MLP (tuned) test MAE = 0.859, improvement +19.1%.
+
+**Conclusive finding, not smoothed over: none of the five configs close
+the gap.** The best variant (less regularization) only reaches 0.875 —
+still 0.016 MAE behind the small MLP, and the improvement is marginal
+(+17.6% vs the original +17.4%) relative to the ~5x longer training
+budget spent getting there. Train MAE kept dropping with more training
+(0.845 → 0.816 across configs) but test MAE did NOT track downward with
+it — more training just lets the model fit the training set harder
+without transferring to better test performance. This rules out
+"insufficient training budget" as the explanation, joining the already-
+ruled-out target descriptor and overfitting hypotheses.
+
+**Status: all three investigated hypotheses for the gap are now ruled
+out** (descriptor richness, overfitting, training budget/regularization).
+The remaining live hypotheses are: (a) the architecture itself (separate
+encoders + fusion) is less effective at this task than direct
+concatenation, independent of training details, or (b) a genuine data-
+scale ceiling (45,584 of 221,273 cells) that affects the more complex
+model differently than the simple one — untested until now.
+
+**Next step per the owner's agreed order:** scale up the real-data
+subsample (more cells/genes) before touching the architecture or
+escalating to Milestone 5's pretrained encoder, to test hypothesis (b)
+directly.
+
+**Not done / explicitly deferred:**
+- Testing a simplified conditional model (e.g., closer to plain
+  concatenation) to directly test hypothesis (a).
+- Learning rate schedules / different optimizers (only Adam at two
+  learning rates was tried).

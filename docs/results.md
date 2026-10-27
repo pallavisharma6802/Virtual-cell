@@ -374,11 +374,36 @@ overfitting problem. PCA+ridge shows almost no train-test gap, as
 expected for a regularized linear model — it is underfitting, not
 overfitting, and that's why it's the weakest of the three.
 
-**Investigation chain complete for now:** richer descriptor → ruled out;
-overfitting → ruled out. The open question is whether the conditional
-architecture needs rethinking (e.g., testing a version closer to plain
-concatenation) or just a different training budget — neither tested
-this session.
+## Longer training / different optimization: also ruled out
+
+Tested 5 configs for the conditional model (same 256/256 hidden config,
+same subsample/split): the original short-training baseline, 500-epoch
+variants at 3 weight-decay levels, and an 800-epoch lower-learning-rate
+variant.
+
+| config | train MAE | test MAE | improvement |
+|---|---|---|---|
+| original (100 epochs) | 0.845 | 0.878 | +17.4% |
+| longer (500 epochs) | 0.827 | 0.878 | +17.3% |
+| longer + more reg | 0.860 | 0.882 | +17.0% |
+| longer + less reg | 0.825 | **0.875** | **+17.6% (best)** |
+| 800 epochs, lower lr | 0.816 | 0.882 | +16.9% |
+
+Reference: small MLP (tuned) = 0.859 test MAE, +19.1%.
+
+**None of the five close the gap.** The best variant still trails the
+small MLP by 0.016 MAE. Train MAE kept improving with more training
+(0.845 → 0.816) but test MAE did not follow — more training just fits
+train harder without better test transfer. This rules out training
+budget/regularization as the explanation.
+
+**Investigation chain complete: target descriptor → ruled out;
+overfitting → ruled out; training budget/optimization → ruled out.** The
+remaining live hypotheses are the architecture itself (separate
+encoders + fusion less effective than direct concatenation) or a data-
+scale ceiling affecting the more complex model differently — the latter
+is the next thing to test, per the agreed order (scale data before
+touching architecture or escalating to Milestone 5).
 
 ## Conclusions
 
