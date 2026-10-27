@@ -81,8 +81,36 @@ def subsample_and_materialize(
     total cell count, which is the actual "memory-efficient loading"
     this milestone needs. See docs/experiment_log.md for the OOM and
     this fix.
+
+    Results are cached to a local .npz keyed by the scale parameters, so
+    repeated experiments on the same subsample (different model
+    hyperparameters, training budgets, etc.) don't re-pay the ~15 minute
+    GCS fetch each time. Cache lives at
+    `.cache/subsample_{seed}_{cells_per_target_cap}_{control_sample_size}_{n_top_genes}.npz`
+    relative to the working directory.
     """
     import gc
+
+    cache_dir = Path(".cache")
+    cache_path = cache_dir / f"subsample_{seed}_{cells_per_target_cap}_{control_sample_size}_{n_top_genes}.npz"
+    if cache_path.exists():
+        print(f"Loading cached subsample from {cache_path}...")
+        cached = np.load(cache_path, allow_pickle=True)
+        X_reduced = cached["X"]
+        obs_df = cached["obs"].item()
+        var_df = cached["var"].item()
+        sub_adata = AnnData(X=X_reduced, obs=obs_df, var=var_df)
+        return CanonicalDataset(
+            adata=sub_adata,
+            gene_ids=list(sub_adata.var.index),
+            provenance=DatasetProvenance(
+                source_name=dataset.provenance.source_name,
+                source_version=dataset.provenance.source_version,
+                source_url=dataset.provenance.source_url,
+                is_synthetic=False,
+                notes=dataset.provenance.notes + " | Loaded from local cache.",
+            ),
+        )
 
     rng = np.random.default_rng(seed)
     obs = dataset.adata.obs
@@ -138,6 +166,15 @@ def subsample_and_materialize(
     sub_var = sub_var.iloc[top_gene_idx]
 
     sub_adata = AnnData(X=X_reduced, obs=sub_obs, var=sub_var)
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        cache_path,
+        X=X_reduced,
+        obs=np.array(sub_obs, dtype=object),
+        var=np.array(sub_var, dtype=object),
+    )
+    print(f"Cached subsample to {cache_path}")
 
     return CanonicalDataset(
         adata=sub_adata,
