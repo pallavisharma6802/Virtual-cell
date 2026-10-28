@@ -167,7 +167,14 @@ def subsample_and_materialize(
     )
     target_cell_positions = sorted(set(target_cell_positions))
     n_genes_full = dataset.adata.n_vars
-    CHUNK = 4000
+    # Reduced from 4000 after live stalls: fetching a 4000-row chunk of
+    # SCATTERED (non-contiguous) positions triggers dozens of concurrent
+    # GCS range requests at once (confirmed via `ss -tnp`), which appears
+    # to occasionally hang indefinitely with no error (observed twice at
+    # CHUNK=4000, always on the very first chunk, with near-zero CPU
+    # usage and no data in flight). A smaller chunk bounds how many
+    # concurrent range requests fire at once per call.
+    CHUNK = 800
 
     def fetch_chunks(positions: list[int]) -> np.ndarray:
         """Fetch positions in memory-bounded chunks, returning a dense
