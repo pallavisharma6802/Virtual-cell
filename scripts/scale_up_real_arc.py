@@ -44,6 +44,43 @@ from virtualcell.models.conditional import ConditionalModelConfig
 from virtualcell.training.trainer import TrainConfig, Trainer
 
 MIN_CELLS_PER_TARGET = 10
+_CHUNKS_SINCE_CACHE_CLEAR = [0]
+GCSFS_CACHE_CLEAR_EVERY = 10
+
+
+def _close_fresh_handle(dataset_handle) -> None:
+    """Explicitly close the backed AnnData's underlying remote file
+    object, and periodically clear gcsfs's cached filesystem instance.
+
+    Root cause found live (2026-11-10, see docs/experiment_log.md): calling
+    `load_arc_challenge_dataset` per chunk does NOT actually open a fresh
+    connection each time — fsspec/gcsfs caches `GCSFileSystem` instances
+    by constructor args, so every "fresh" call returns the SAME cached
+    filesystem object and its underlying session. Without an explicit
+    close, each chunk's file handle leaks an open socket on that shared
+    session; after ~dozens of chunks this accumulates (confirmed via
+    `ss -tnp` showing 50+ idle ESTABLISHED connections to Google) and the
+    process eventually stalls with near-zero CPU usage, indefinitely,
+    with no error raised. Explicitly closing the h5py file each chunk,
+    and periodically clearing gcsfs's filesystem instance cache to force
+    a genuinely new session, fixes this.
+    """
+    try:
+        backing_file = getattr(dataset_handle.adata, "file", None)
+        if backing_file is not None:
+            backing_file.close()
+    except Exception:
+        pass
+
+    _CHUNKS_SINCE_CACHE_CLEAR[0] += 1
+    if _CHUNKS_SINCE_CACHE_CLEAR[0] >= GCSFS_CACHE_CLEAR_EVERY:
+        _CHUNKS_SINCE_CACHE_CLEAR[0] = 0
+        try:
+            import gcsfs
+
+            gcsfs.GCSFileSystem.clear_instance_cache()
+        except Exception:
+            pass
 
 
 def subsample_and_materialize(
@@ -146,6 +183,7 @@ def subsample_and_materialize(
             sub_chunk = fresh.adata[chunk_positions, :].to_memory()
             chunk_dense = np.asarray(sub_chunk.X.todense()) if hasattr(sub_chunk.X, "todense") else np.asarray(sub_chunk.X)
             out[start : start + len(chunk_positions)] = chunk_dense
+            _close_fresh_handle(fresh)
             del fresh, sub_chunk, chunk_dense
             gc.collect()
             print(f"  fetched {min(start + CHUNK, len(positions))}/{len(positions)} cells "
@@ -187,6 +225,7 @@ def subsample_and_materialize(
         sub_chunk = fresh.adata[chunk_positions, :].to_memory()
         chunk_dense = np.asarray(sub_chunk.X.todense()) if hasattr(sub_chunk.X, "todense") else np.asarray(sub_chunk.X)
         X_target_reduced[start : start + len(chunk_positions)] = chunk_dense[:, top_gene_idx]
+        _close_fresh_handle(fresh)
         del fresh, sub_chunk, chunk_dense
         gc.collect()
         print(f"  fetched {min(start + CHUNK, n_target_cells)}/{n_target_cells} cells "
