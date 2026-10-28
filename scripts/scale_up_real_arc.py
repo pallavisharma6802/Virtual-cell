@@ -116,28 +116,65 @@ def subsample_and_materialize(
     obs = dataset.adata.obs
     ctrl_mask = dataset.control_mask()
 
-    keep_cell_positions = []
+    target_cell_positions = []
     for target in dataset.targets():
         positions = np.where((obs["perturbation_id"] == target).to_numpy())[0]
         if len(positions) < MIN_CELLS_PER_TARGET:
             continue
         chosen = rng.choice(positions, size=min(cells_per_target_cap, len(positions)), replace=False)
-        keep_cell_positions.extend(chosen.tolist())
+        target_cell_positions.extend(chosen.tolist())
 
-    ctrl_positions = np.where(ctrl_mask)[0]
-    ctrl_sample = rng.choice(ctrl_positions, size=min(control_sample_size, len(ctrl_positions)), replace=False)
-    keep_cell_positions.extend(ctrl_sample.tolist())
-
-    keep_cell_positions = sorted(set(keep_cell_positions))
-    n_cells = len(keep_cell_positions)
+    ctrl_positions_all = np.where(ctrl_mask)[0]
+    ctrl_positions = sorted(
+        rng.choice(ctrl_positions_all, size=min(control_sample_size, len(ctrl_positions_all)), replace=False).tolist()
+    )
+    target_cell_positions = sorted(set(target_cell_positions))
     n_genes_full = dataset.adata.n_vars
-    print(f"Fetching {n_cells} cells from GCS in memory-bounded chunks...")
-
     CHUNK = 4000
-    X_full_genes = np.empty((n_cells, n_genes_full), dtype=np.float32)
+
+    def fetch_chunks(positions: list[int]) -> np.ndarray:
+        """Fetch positions in memory-bounded chunks, returning a dense
+        float32 array at FULL gene width — caller must reduce/discard
+        promptly for large `positions` lists (see note below on why
+        reduction can't happen inside this helper for the gene-selection
+        pass, but must for the large target-cell pass)."""
+        out = np.empty((len(positions), n_genes_full), dtype=np.float32)
+        t0 = time.time()
+        for start in range(0, len(positions), CHUNK):
+            chunk_positions = positions[start : start + CHUNK]
+            fresh = load_arc_challenge_dataset(path_or_url, backed="r")
+            sub_chunk = fresh.adata[chunk_positions, :].to_memory()
+            chunk_dense = np.asarray(sub_chunk.X.todense()) if hasattr(sub_chunk.X, "todense") else np.asarray(sub_chunk.X)
+            out[start : start + len(chunk_positions)] = chunk_dense
+            del fresh, sub_chunk, chunk_dense
+            gc.collect()
+            print(f"  fetched {min(start + CHUNK, len(positions))}/{len(positions)} cells "
+                  f"({time.time() - t0:.1f}s elapsed)")
+        return out
+
+    # PASS 1: fetch controls only (small enough to hold at full gene
+    # width) to pick the top-variable genes BEFORE the large target-cell
+    # fetch. This is what lets the large pass reduce each chunk to
+    # n_top_genes immediately instead of ever holding
+    # (total_cells x 18,080) in memory — the thing that would otherwise
+    # OOM at large scale (e.g. 126,000 cells x 18,080 genes x 4 bytes is
+    # ~9.1 GB, over this instance's 8GB RAM).
+    print(f"Pass 1/2: fetching {len(ctrl_positions)} control cells to select top-{n_top_genes} variable genes...")
+    X_ctrl_full = fetch_chunks(ctrl_positions)
+    gene_var = X_ctrl_full.var(axis=0)
+    top_gene_idx = np.sort(np.argsort(-gene_var)[:n_top_genes])
+    X_ctrl_reduced = X_ctrl_full[:, top_gene_idx].copy()
+    del X_ctrl_full
+    gc.collect()
+
+    # PASS 2: fetch target cells in chunks, reducing each chunk to
+    # top_gene_idx immediately (not accumulating full gene width).
+    n_target_cells = len(target_cell_positions)
+    print(f"Pass 2/2: fetching {n_target_cells} target cells from GCS in memory-bounded, gene-reduced chunks...")
+    X_target_reduced = np.empty((n_target_cells, n_top_genes), dtype=np.float32)
     t_fetch0 = time.time()
-    for start in range(0, n_cells, CHUNK):
-        chunk_positions = keep_cell_positions[start : start + CHUNK]
+    for start in range(0, n_target_cells, CHUNK):
+        chunk_positions = target_cell_positions[start : start + CHUNK]
         # A backed AnnData's remote file handle is consumed/closed after a
         # .to_memory() call on a view of it — reusing `dataset.adata`
         # across chunks fails on the second chunk with a FileNotFoundError
@@ -149,21 +186,16 @@ def subsample_and_materialize(
         fresh = load_arc_challenge_dataset(path_or_url, backed="r")
         sub_chunk = fresh.adata[chunk_positions, :].to_memory()
         chunk_dense = np.asarray(sub_chunk.X.todense()) if hasattr(sub_chunk.X, "todense") else np.asarray(sub_chunk.X)
-        X_full_genes[start : start + len(chunk_positions)] = chunk_dense
+        X_target_reduced[start : start + len(chunk_positions)] = chunk_dense[:, top_gene_idx]
         del fresh, sub_chunk, chunk_dense
         gc.collect()
-        print(f"  fetched {min(start + CHUNK, n_cells)}/{n_cells} cells "
+        print(f"  fetched {min(start + CHUNK, n_target_cells)}/{n_target_cells} cells "
               f"({time.time() - t_fetch0:.1f}s elapsed)")
 
+    keep_cell_positions = ctrl_positions + target_cell_positions
+    X_reduced = np.concatenate([X_ctrl_reduced, X_target_reduced], axis=0)
     sub_obs = obs.iloc[keep_cell_positions].copy()
-    sub_var = dataset.adata.var.copy()
-
-    sub_ctrl_mask = sub_obs["is_control"].to_numpy()
-    gene_var = X_full_genes[sub_ctrl_mask].var(axis=0)
-    top_gene_idx = np.sort(np.argsort(-gene_var)[:n_top_genes])
-
-    X_reduced = X_full_genes[:, top_gene_idx].astype(np.float32)
-    sub_var = sub_var.iloc[top_gene_idx]
+    sub_var = dataset.adata.var.iloc[top_gene_idx].copy()
 
     sub_adata = AnnData(X=X_reduced, obs=sub_obs, var=sub_var)
 
