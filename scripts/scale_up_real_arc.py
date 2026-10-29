@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pathlib import Path
 
 import numpy as np
@@ -71,6 +72,63 @@ def _close_fresh_handle(dataset_handle) -> None:
             backing_file.close()
     except Exception:
         pass
+
+
+def _fetch_one_chunk_dense(path_or_url: str, chunk_positions: list[int], top_gene_idx: np.ndarray | None):
+    """Fetch and densify one chunk; optionally reduce to top_gene_idx
+    columns if given. Runs as the body of a timeout-protected call."""
+    fresh = load_arc_challenge_dataset(path_or_url, backed="r")
+    sub_chunk = fresh.adata[chunk_positions, :].to_memory()
+    chunk_dense = np.asarray(sub_chunk.X.todense()) if hasattr(sub_chunk.X, "todense") else np.asarray(sub_chunk.X)
+    if top_gene_idx is not None:
+        chunk_dense = chunk_dense[:, top_gene_idx]
+    _close_fresh_handle(fresh)
+    return chunk_dense
+
+
+def fetch_chunk_with_retry(
+    path_or_url: str,
+    chunk_positions: list[int],
+    top_gene_idx: np.ndarray | None = None,
+    timeout_s: float = 90.0,
+    max_attempts: int = 4,
+) -> np.ndarray:
+    """Fetch one chunk with a hard timeout and retry.
+
+    Live runs at larger scale (2026-11-10, see docs/experiment_log.md)
+    repeatedly stalled indefinitely on a single chunk's fetch — alive
+    (not crashed), but with near-zero CPU usage and no progress for many
+    minutes, with no exception ever raised. The root cause (likely
+    gcsfs/GCS connection-pool contention under many concurrent scattered
+    range requests) was not fully pinned down despite several
+    mitigations (chunk-size reduction, explicit handle closing,
+    filesystem-cache clearing) that each failed to fully resolve it. A
+    hard per-chunk timeout + retry handles this regardless of root
+    cause: if a chunk hangs past `timeout_s`, the attempt is abandoned
+    (the orphaned thread is left to finish in the background — Python
+    cannot force-kill a thread, but a fresh attempt proceeds
+    independently) and retried, up to `max_attempts` times, each retry
+    also clearing gcsfs's filesystem instance cache to force a genuinely
+    new connection pool.
+    """
+    for attempt in range(1, max_attempts + 1):
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_fetch_one_chunk_dense, path_or_url, chunk_positions, top_gene_idx)
+            try:
+                return future.result(timeout=timeout_s)
+            except FutureTimeoutError:
+                print(f"  chunk fetch attempt {attempt}/{max_attempts} timed out after {timeout_s}s, retrying...")
+                try:
+                    import gcsfs
+
+                    gcsfs.GCSFileSystem.clear_instance_cache()
+                except Exception:
+                    pass
+    raise RuntimeError(
+        f"Failed to fetch chunk of {len(chunk_positions)} cells after {max_attempts} attempts, "
+        f"each timing out at {timeout_s}s. This may indicate a persistent network/GCS issue, "
+        "not a transient one — consider reducing chunk size further or checking connectivity."
+    )
 
     _CHUNKS_SINCE_CACHE_CLEAR[0] += 1
     if _CHUNKS_SINCE_CACHE_CLEAR[0] >= GCSFS_CACHE_CLEAR_EVERY:
@@ -186,12 +244,9 @@ def subsample_and_materialize(
         t0 = time.time()
         for start in range(0, len(positions), CHUNK):
             chunk_positions = positions[start : start + CHUNK]
-            fresh = load_arc_challenge_dataset(path_or_url, backed="r")
-            sub_chunk = fresh.adata[chunk_positions, :].to_memory()
-            chunk_dense = np.asarray(sub_chunk.X.todense()) if hasattr(sub_chunk.X, "todense") else np.asarray(sub_chunk.X)
+            chunk_dense = fetch_chunk_with_retry(path_or_url, chunk_positions, top_gene_idx=None)
             out[start : start + len(chunk_positions)] = chunk_dense
-            _close_fresh_handle(fresh)
-            del fresh, sub_chunk, chunk_dense
+            del chunk_dense
             gc.collect()
             print(f"  fetched {min(start + CHUNK, len(positions))}/{len(positions)} cells "
                   f"({time.time() - t0:.1f}s elapsed)")
@@ -225,15 +280,13 @@ def subsample_and_materialize(
         # across chunks fails on the second chunk with a FileNotFoundError
         # from h5py trying to reopen an already-closed gcsfs file object
         # (confirmed by a live run; see docs/experiment_log.md). Re-open a
-        # fresh backed handle per chunk instead — cheap relative to the
-        # per-row read cost (confirmed: ~1-2s to reopen vs. the per-chunk
-        # multi-second data read).
-        fresh = load_arc_challenge_dataset(path_or_url, backed="r")
-        sub_chunk = fresh.adata[chunk_positions, :].to_memory()
-        chunk_dense = np.asarray(sub_chunk.X.todense()) if hasattr(sub_chunk.X, "todense") else np.asarray(sub_chunk.X)
-        X_target_reduced[start : start + len(chunk_positions)] = chunk_dense[:, top_gene_idx]
-        _close_fresh_handle(fresh)
-        del fresh, sub_chunk, chunk_dense
+        # fresh backed handle per chunk instead. `fetch_chunk_with_retry`
+        # also applies a hard timeout + retry, since this fetch has been
+        # observed to silently hang indefinitely on some chunks at larger
+        # scale (see docs/experiment_log.md).
+        chunk_dense = fetch_chunk_with_retry(path_or_url, chunk_positions, top_gene_idx=top_gene_idx)
+        X_target_reduced[start : start + len(chunk_positions)] = chunk_dense
+        del chunk_dense
         gc.collect()
         print(f"  fetched {min(start + CHUNK, n_target_cells)}/{n_target_cells} cells "
               f"({time.time() - t_fetch0:.1f}s elapsed)")
