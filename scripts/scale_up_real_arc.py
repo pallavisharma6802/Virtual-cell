@@ -21,8 +21,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pathlib import Path
 
 import numpy as np
@@ -45,100 +45,64 @@ from virtualcell.models.conditional import ConditionalModelConfig
 from virtualcell.training.trainer import TrainConfig, Trainer
 
 MIN_CELLS_PER_TARGET = 10
-_CHUNKS_SINCE_CACHE_CLEAR = [0]
-GCSFS_CACHE_CLEAR_EVERY = 10
-
-
-def _close_fresh_handle(dataset_handle) -> None:
-    """Explicitly close the backed AnnData's underlying remote file
-    object, and periodically clear gcsfs's cached filesystem instance.
-
-    Root cause found live (2026-11-10, see docs/experiment_log.md): calling
-    `load_arc_challenge_dataset` per chunk does NOT actually open a fresh
-    connection each time — fsspec/gcsfs caches `GCSFileSystem` instances
-    by constructor args, so every "fresh" call returns the SAME cached
-    filesystem object and its underlying session. Without an explicit
-    close, each chunk's file handle leaks an open socket on that shared
-    session; after ~dozens of chunks this accumulates (confirmed via
-    `ss -tnp` showing 50+ idle ESTABLISHED connections to Google) and the
-    process eventually stalls with near-zero CPU usage, indefinitely,
-    with no error raised. Explicitly closing the h5py file each chunk,
-    and periodically clearing gcsfs's filesystem instance cache to force
-    a genuinely new session, fixes this.
-    """
-    try:
-        backing_file = getattr(dataset_handle.adata, "file", None)
-        if backing_file is not None:
-            backing_file.close()
-    except Exception:
-        pass
-
-
-def _fetch_one_chunk_dense(path_or_url: str, chunk_positions: list[int], top_gene_idx: np.ndarray | None):
-    """Fetch and densify one chunk; optionally reduce to top_gene_idx
-    columns if given. Runs as the body of a timeout-protected call."""
-    fresh = load_arc_challenge_dataset(path_or_url, backed="r")
-    sub_chunk = fresh.adata[chunk_positions, :].to_memory()
-    chunk_dense = np.asarray(sub_chunk.X.todense()) if hasattr(sub_chunk.X, "todense") else np.asarray(sub_chunk.X)
-    if top_gene_idx is not None:
-        chunk_dense = chunk_dense[:, top_gene_idx]
-    _close_fresh_handle(fresh)
-    return chunk_dense
+_WORKER_SCRIPT = Path(__file__).parent / "_fetch_chunk_worker.py"
 
 
 def fetch_chunk_with_retry(
     path_or_url: str,
     chunk_positions: list[int],
     top_gene_idx: np.ndarray | None = None,
-    timeout_s: float = 90.0,
-    max_attempts: int = 4,
+    timeout_s: float = 120.0,
+    max_attempts: int = 3,
 ) -> np.ndarray:
-    """Fetch one chunk with a hard timeout and retry.
+    """Fetch one chunk in a SEPARATE OS PROCESS, with a hard timeout and
+    retry.
 
     Live runs at larger scale (2026-11-10, see docs/experiment_log.md)
-    repeatedly stalled indefinitely on a single chunk's fetch — alive
-    (not crashed), but with near-zero CPU usage and no progress for many
-    minutes, with no exception ever raised. The root cause (likely
-    gcsfs/GCS connection-pool contention under many concurrent scattered
-    range requests) was not fully pinned down despite several
-    mitigations (chunk-size reduction, explicit handle closing,
-    filesystem-cache clearing) that each failed to fully resolve it. A
-    hard per-chunk timeout + retry handles this regardless of root
-    cause: if a chunk hangs past `timeout_s`, the attempt is abandoned
-    (the orphaned thread is left to finish in the background — Python
-    cannot force-kill a thread, but a fresh attempt proceeds
-    independently) and retried, up to `max_attempts` times, each retry
-    also clearing gcsfs's filesystem instance cache to force a genuinely
-    new connection pool.
+    repeatedly stalled indefinitely on a single chunk's fetch. An
+    in-process fix (hard timeout + retry in a worker THREAD) was tried
+    first and did not work: once gcsfs's background async prefetcher
+    failed to tear down cleanly once ("BackgroundPrefetcher teardown did
+    not complete... it will keep running in the background"), ALL
+    subsequent same-process retries also timed out — the corrupted
+    async/event-loop state persists for the rest of that process, so
+    "fresh" attempts in a new thread were never actually independent.
+
+    Running each chunk fetch in a genuinely separate OS process (a fresh
+    Python interpreter, fresh event loop every time) fixes this: if one
+    process hangs, it's killed outright by `subprocess.run`'s timeout and
+    the next attempt starts with zero shared state.
     """
+    import subprocess
+    import tempfile
+
     for attempt in range(1, max_attempts + 1):
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(_fetch_one_chunk_dense, path_or_url, chunk_positions, top_gene_idx)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            positions_path = f"{tmpdir}/positions.npy"
+            output_path = f"{tmpdir}/output.npy"
+            np.save(positions_path, np.asarray(chunk_positions, dtype=np.int64))
+
+            cmd = [sys.executable, str(_WORKER_SCRIPT), path_or_url, positions_path, output_path]
+            if top_gene_idx is not None:
+                top_gene_path = f"{tmpdir}/top_gene_idx.npy"
+                np.save(top_gene_path, top_gene_idx)
+                cmd.append(top_gene_path)
+
             try:
-                return future.result(timeout=timeout_s)
-            except FutureTimeoutError:
-                print(f"  chunk fetch attempt {attempt}/{max_attempts} timed out after {timeout_s}s, retrying...")
-                try:
-                    import gcsfs
+                subprocess.run(cmd, timeout=timeout_s, check=True, capture_output=True, text=True)
+                return np.load(output_path)
+            except subprocess.TimeoutExpired:
+                print(f"  chunk fetch attempt {attempt}/{max_attempts} timed out after {timeout_s}s "
+                      f"(subprocess killed), retrying...")
+            except subprocess.CalledProcessError as e:
+                print(f"  chunk fetch attempt {attempt}/{max_attempts} failed (exit {e.returncode}): "
+                      f"{e.stderr[-500:] if e.stderr else '(no stderr)'}")
 
-                    gcsfs.GCSFileSystem.clear_instance_cache()
-                except Exception:
-                    pass
     raise RuntimeError(
-        f"Failed to fetch chunk of {len(chunk_positions)} cells after {max_attempts} attempts, "
-        f"each timing out at {timeout_s}s. This may indicate a persistent network/GCS issue, "
-        "not a transient one — consider reducing chunk size further or checking connectivity."
+        f"Failed to fetch chunk of {len(chunk_positions)} cells after {max_attempts} attempts "
+        f"(each either timed out at {timeout_s}s or errored). This may indicate a persistent "
+        "network/GCS issue, not a transient one."
     )
-
-    _CHUNKS_SINCE_CACHE_CLEAR[0] += 1
-    if _CHUNKS_SINCE_CACHE_CLEAR[0] >= GCSFS_CACHE_CLEAR_EVERY:
-        _CHUNKS_SINCE_CACHE_CLEAR[0] = 0
-        try:
-            import gcsfs
-
-            gcsfs.GCSFileSystem.clear_instance_cache()
-        except Exception:
-            pass
 
 
 def subsample_and_materialize(
