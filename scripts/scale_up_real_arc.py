@@ -383,13 +383,15 @@ def hyperparameter_sweep(train_ctrl, train_desc, train_delta, val_ctrl, val_desc
 
 
 def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_size: int,
-        n_top_genes: int, n_workers: int, descriptor: str = "mean_std", n_components: int = 20) -> dict:
-    print("Loading Arc Virtual Cell Challenge dataset (backed mode)...")
-    full_dataset = load_arc_challenge_dataset(ARC_CHALLENGE_TRAIN_URL, backed="r")
+        n_top_genes: int, n_workers: int, descriptor: str = "mean_std", n_components: int = 20,
+        source_path: str = ARC_CHALLENGE_TRAIN_URL) -> dict:
+    print(f"Loading Arc Virtual Cell Challenge dataset from {source_path} (backed mode)...")
+    full_dataset = load_arc_challenge_dataset(source_path, backed="r")
     t0 = time.time()
     dataset = subsample_and_materialize(
         full_dataset, seed=seed, cells_per_target_cap=cells_per_target_cap,
         control_sample_size=control_sample_size, n_top_genes=n_top_genes, n_workers=n_workers,
+        path_or_url=source_path,
     )
     fetch_time = time.time() - t0
     print(f"Scaled-up dataset: {dataset.n_cells} cells x {dataset.n_genes} genes, "
@@ -502,11 +504,15 @@ def main() -> None:
     parser.add_argument("--n-workers", type=int, default=12)
     parser.add_argument("--descriptor", choices=["mean_std", "coexpression"], default="mean_std")
     parser.add_argument("--n-components", type=int, default=20)
+    parser.add_argument("--h5ad-path", type=str, default=ARC_CHALLENGE_TRAIN_URL,
+                         help="Local file path or gs:// URL for the Arc h5ad. Use a local path "
+                              "(after scripts/download_arc_h5ad.py) to avoid the scattered-remote-"
+                              "row-access problem documented in docs/experiment_log.md.")
     args = parser.parse_args()
     summary = run(
         args.output_dir, seed=args.seed, cells_per_target_cap=args.cells_per_target_cap,
         control_sample_size=args.control_sample_size, n_top_genes=args.n_top_genes, n_workers=args.n_workers,
-        descriptor=args.descriptor, n_components=args.n_components,
+        descriptor=args.descriptor, n_components=args.n_components, source_path=args.h5ad_path,
     )
     print(json.dumps({k: v for k, v in summary.items() if k != "per_target"}, indent=2, default=str))
 
