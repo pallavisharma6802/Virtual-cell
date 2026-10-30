@@ -1014,3 +1014,55 @@ investigated this session.
 The persistent EC2 instance (`virtualcell-working`) remains running per
 the owner's instruction — not terminated, idle, no cost accruing beyond
 baseline compute while idle.
+
+## 2026-11-10/11: Root cause confirmed; scale-up to ~106k cells completed
+
+**Root cause confirmed (live diagnosis, before any more blind fixes, per
+owner request):** inspected the Arc h5ad's HDF5 metadata directly (cheap,
+fast, no large download). `X/data` and `X/indices` are chunked at 58,977
+elements (~230KB, covering only ~6-7 rows' worth each), uncompressed.
+With sample positions scattered roughly uniformly across all 221,273
+rows (average gap ~37 rows for a 6,000-cell sample, far exceeding the
+~6.76-rows/chunk density), nearly every sampled row lands in its own
+separate HDF5 chunk — so fetching N scattered rows costs ~N separate
+small HTTP range requests over GCS, latency-dominated and effectively
+unbounded at scale. This explains why retries (same request pattern,
+same cost) and process isolation (same request pattern, different
+process) both failed to fix it earlier — neither reduces the round-trip
+count, which was the actual problem.
+
+**Fix:** download the full ~15.5GB file once as a single sequential
+transfer (`scripts/download_arc_h5ad.py`, `gcsfs.get()` — completed in
+111.8s, 1.1 Gbps), then read all subsequent row slices from local disk
+(`--h5ad-path` flag added to `scripts/scale_up_real_arc.py`). The
+identical scattered-position fetch that previously stalled indefinitely
+completed in 26.3s against the local copy — direct empirical
+confirmation the diagnosis was correct.
+
+**Follow-up bug found and fixed during the first resumed run:** the
+subsample cache (`.cache/subsample_*.npz`) saved `obs`/`var` via
+`np.array(df, dtype=object)`, which flattens a DataFrame to its values
+array rather than wrapping it as a single pickled object — so
+`cached["obs"].item()` on load raised `ValueError: can only convert an
+array of size 1 to a Python scalar`. Fixed by wrapping in a 0-d object
+array (`np.empty((), dtype=object); holder[()] = df`) before `savez`.
+Deleted the one corrupted cache file and let it re-fetch (~213s) to
+produce a correctly-cached file.
+
+**Scale-up run completed:** 106,287 cells, 150 targets, full baseline
+ladder with independent hyperparameter tuning per model. Conditional
+model's hyperparameter sweep (4 configs, each trained to convergence)
+took the bulk of the wall-clock time on the 2-vCPU instance — individual
+configs ranged from ~4.5 to ~10 minutes, genuinely CPU-bound (verified
+via `ps` CPU% staying high throughout, not stalled) rather than hung.
+Full results in `docs/results.md` under "Scale-up to ~106k real cells:
+the architecture gap persists" — short version: small MLP still wins
+(0.891 test MAE) over the tuned conditional model (0.895), same ranking
+as the smaller-scale comparison; the architecture gap did not close or
+reverse with ~4x more data.
+
+Per owner instruction, the persistent EC2 instance (`virtualcell-working`,
+`i-0a277e6b18a5d5af9`) was **stopped** (not terminated) once this run's
+results were pulled back locally, to halt compute billing while
+preserving the environment/venv/local h5ad copy/cache for a cheap
+resume later.

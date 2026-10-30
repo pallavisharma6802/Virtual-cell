@@ -405,6 +405,73 @@ scale ceiling affecting the more complex model differently — the latter
 is the next thing to test, per the agreed order (scale data before
 touching architecture or escalating to Milestone 5).
 
+## Scale-up to ~106k real cells: the architecture gap persists
+
+Ran the full baseline ladder (PCA+ridge, small MLP, conditional model —
+each independently hyperparameter-tuned on held-out val targets) on a
+much larger real-data subsample than any prior comparison in this
+project: 106,287 cells across 150 perturbation targets (6,000 control
+cells + up to 800 cells/target, 2,500 top-variable genes), held-out-
+target split (90 train / 30 val / 30 test targets, 20,944 test cells).
+Run artifacts: `outputs/scale_up_large/metrics.json`,
+`outputs/scale_up_large/run.log`.
+
+This required fixing a real infrastructure bug first (see entry below
+on the scattered-remote-row-access root cause): fetching cells at this
+scale over HTTP range requests against the Arc h5ad's small HDF5
+chunks was latency-dominated and would hang indefinitely. Fixed by
+downloading the full file once and reading all subsequent rows from
+local disk (`scripts/download_arc_h5ad.py`, `--h5ad-path` flag on
+`scripts/scale_up_real_arc.py`).
+
+| model | test MAE | best config | improvement over no-effect |
+|---|---|---|---|
+| no-effect / seen-target-mean | 1.051 | — | 0% (reference) |
+| PCA+ridge (tuned) | 0.907 | n_components=50, alpha=10.0 | +13.8% |
+| small MLP (tuned) | **0.891** | hidden_dim=256 | **+15.2% (best)** |
+| conditional model (tuned) | 0.895 | control/fusion hidden=256, lr=1e-3 | +14.8% |
+
+**The small MLP still wins, narrowly, over the conditional model at
+this larger scale** (0.891 vs. 0.895 test MAE) — the same ranking as
+the smaller-scale "fair retuned comparison" above. Going from ~27k
+cells (the prior real-data comparison) to ~106k cells (a ~4x increase)
+did not close the gap or reverse the ranking; if anything the margin
+between the two is now smaller (0.004 MAE vs. 0.016 at the smaller
+scale), which is at least directionally consistent with the complex
+model benefiting somewhat from more data, but it has not caught up or
+overtaken.
+
+Conditional-model hyperparameter sweep detail (4 configs, each trained
+to convergence with early stopping, patience=12):
+
+| control/fusion hidden dim | lr | best val loss | best epoch |
+|---|---|---|---|
+| 128 | 1e-3 | 0.526 | 19 |
+| 64 | 1e-3 | 0.530 | 19 |
+| 128 | 3e-4 | 0.529 | 17 |
+| **256** | **1e-3** | **0.519 (best)** | 31 |
+
+Grouped bootstrap CI on the tuned conditional model's per-target test
+MAE (30 held-out targets, resampled): mean 0.159, CI [0.128, 0.200].
+Worst 3 targets by MAE: `RNF20` (n=47, MAE 0.517), `METTL3` (n=498, MAE
+0.483), `ATM` (n=455, MAE 0.271) — all three also have near-zero or
+negative Pearson/Spearman correlation on held-out cells, consistent
+with the model not capturing target-specific signal for these genes
+specifically (low cell count for RNF20 is a plausible partial
+explanation there; METTL3 and ATM have adequate cell counts, so their
+poor correlation is not just a sample-size artifact).
+
+**Conclusion so far: more data alone does not resolve the
+architecture-gap question.** Per the agreed investigation order
+(training budget → scale data → re-evaluate → Milestone 5), the next
+honest step is to re-evaluate whether to invest in the conditional
+architecture itself (e.g. direct concatenation instead of separate
+encoders+fusion, per the live hypothesis above) or move to Milestone 5
+(pretrained foundation encoder, which plausibly fixes the shared weak
+target descriptor instead) — scaling data further is not expected to
+change this conclusion on its own, since the gap direction held across
+a ~4x data increase.
+
 ## Conclusions
 
 - **H1 (conditional model beats no-effect baseline on held-out targets):**
@@ -429,11 +496,15 @@ touching architecture or escalating to Milestone 5).
   precision/recall@20). Not re-tested on real data.
 - **Does the conditional model's architecture complexity help?** No,
   not clearly, by the best evidence available (the fair, all-tuned
-  comparison) — the small MLP currently wins. This is the project's
-  central open question going forward: either the architecture needs
-  rethinking, the target descriptor is the real bottleneck (most likely,
-  given it's shared and weak across all three models), or more
-  seeds/scale would change this ranking. Not yet determined which.
+  comparison) — the small MLP currently wins, and this held up after a
+  ~4x scale-up to ~106k real cells (small MLP 0.891 vs. conditional
+  0.895 test MAE — see "Scale-up to ~106k real cells" above). Scale is
+  no longer a live explanation for the gap, since more data did not
+  reverse or close it. The remaining candidates are the architecture
+  itself (separate encoders + fusion vs. direct concatenation) or the
+  shared weak target descriptor as the real bottleneck — not yet
+  determined which, but the descriptor is the more likely one given
+  it's shared and weak across all three models equally.
 - **Does a richer target descriptor help?** No, by this evidence — the
   co-expression descriptor didn't clearly improve any model at the
   smaller real-data scale, and was not re-tested at the larger scale this

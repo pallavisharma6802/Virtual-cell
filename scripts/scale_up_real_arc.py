@@ -263,11 +263,15 @@ def subsample_and_materialize(
     sub_adata = AnnData(X=X_reduced, obs=sub_obs, var=sub_var)
 
     cache_dir.mkdir(parents=True, exist_ok=True)
+    obs_holder = np.empty((), dtype=object)
+    obs_holder[()] = sub_obs
+    var_holder = np.empty((), dtype=object)
+    var_holder[()] = sub_var
     np.savez(
         cache_path,
         X=X_reduced,
-        obs=np.array(sub_obs, dtype=object),
-        var=np.array(sub_var, dtype=object),
+        obs=obs_holder,
+        var=var_holder,
     )
     print(f"Cached subsample to {cache_path}")
 
