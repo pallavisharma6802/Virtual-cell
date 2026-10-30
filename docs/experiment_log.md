@@ -946,3 +946,71 @@ directly.
   concatenation) to directly test hypothesis (a).
 - Learning rate schedules / different optimizers (only Adam at two
   learning rates was tried).
+
+## 2026-11-10 — Scale-up to ~126k cells: blocked by a persistent, unresolved fetch failure
+
+**Status: NOT resolved this session.** After the owner's explicit go-ahead
+to try a different fetch approach, four progressively more invasive
+fixes were tried for the same first chunk (800 of 6,000 control cells)
+at the larger ~126k-cell target scale. All four failed the same way:
+alive, near-zero CPU usage, no progress, no exception, for many minutes.
+
+1. **Explicit handle close + periodic gcsfs cache clear** — did not help.
+2. **Smaller chunk size (4000 → 800)** — did not help.
+3. **Hard 90s timeout + retry in a worker THREAD** — the thread-based
+   retries all failed too; the log revealed why: gcsfs's background
+   async prefetcher failed to tear down cleanly once
+   ("BackgroundPrefetcher teardown did not complete... it will keep
+   running in the background"), and every subsequent same-process retry
+   also timed out — the corrupted async/event-loop state appears to
+   persist for the rest of that Python process.
+4. **Hard 120s timeout + retry in a separate OS PROCESS**
+   (`scripts/_fetch_chunk_worker.py`, invoked via `subprocess.run`) —
+   this was expected to fully solve it (fresh interpreter, fresh event
+   loop every attempt, no possible shared corrupted state). It did NOT:
+   all 3 process-isolated attempts also stalled and were killed cleanly
+   by the timeout, and the script correctly raised its own `RuntimeError`
+   after exhausting retries — confirmed via a clean traceback, no orphan
+   processes left behind.
+
+**This rules out in-process Python/asyncio state corruption as the root
+cause** (since a genuinely fresh OS process still failed the same way).
+The most likely remaining explanation is something at the network/host
+level specific to this persistent EC2 instance's connection to Google
+Cloud Storage for this exact access pattern (anonymous, scattered
+non-contiguous range reads at this scale) — not confirmed, since this
+was not investigated further (e.g. no packet capture, no test from a
+different instance or region was attempted this session).
+
+**What changed in the codebase (kept, since each is independently sound
+engineering even though none fixed the root cause):** memory-bounded
+two-pass loading (fixes a real, confirmed OOM at larger scale),
+subprocess-based chunk fetching with hard timeout + retry
+(`scripts/_fetch_chunk_worker.py`), local subsample caching. These are
+genuine improvements over the original single-shot loader and remain in
+place for future attempts.
+
+**Honest summary for the owner:** the ~45,584-cell scale-up (Milestone 5
+log entries above) remains the actual, trustworthy result set. The
+~126k-cell scale-up is blocked, not abandoned by choice — it hit a wall
+that four different fixes (targeting the three most likely explanations:
+resource leak, chunk size, in-process async corruption) did not resolve,
+and the most likely remaining cause (host/network-level) was not
+investigated this session.
+
+**Recommended next steps, not yet attempted:**
+- Try fetching from a FRESH EC2 instance (not the persistent
+  `virtualcell-working` one) to check whether this is instance-specific.
+- Try a different, non-random, CONTIGUOUS range of cell positions for
+  the first chunk, to check whether scattered/non-contiguous reads
+  specifically are implicated.
+- Try `gsutil`/`gcloud storage` directly (outside the Python/gcsfs stack
+  entirely) for the same byte range, as an independent test of whether
+  the problem is gcsfs-specific or a genuine GCS/network issue.
+- Check AWS's own network path (e.g. via VPC flow logs or a basic
+  `curl`/`traceroute` test to `storage.googleapis.com`) for packet loss
+  or routing anomalies specific to this instance/AZ.
+
+The persistent EC2 instance (`virtualcell-working`) remains running per
+the owner's instruction — not terminated, idle, no cost accruing beyond
+baseline compute while idle.
