@@ -7,6 +7,8 @@ from virtualcell.data.target_descriptors import (
     descriptor_for_targets,
     fit_coexpression_descriptors,
     fit_control_mean_std_descriptors,
+    fit_gene2vec_descriptors,
+    load_gene2vec_table,
 )
 
 
@@ -48,3 +50,37 @@ def test_coexpression_descriptor_differs_from_mean_std():
     mean_std = fit_control_mean_std_descriptors(dataset, manifest)
     some_gene = dataset.gene_ids[0]
     assert coexpr[some_gene].shape != mean_std[some_gene].shape
+
+
+def test_load_gene2vec_table_parses_whitespace_separated_rows(tmp_path):
+    path = tmp_path / "gene2vec.txt"
+    path.write_text("GENE_A " + " ".join(str(float(i)) for i in range(200)) + "\n"
+                     "GENE_B " + " ".join(str(float(i) * 2) for i in range(200)) + "\n")
+    table = load_gene2vec_table(path)
+    assert set(table.keys()) == {"GENE_A", "GENE_B"}
+    assert table["GENE_A"].shape == (200,)
+    assert np.allclose(table["GENE_B"], np.arange(200, dtype=np.float32) * 2)
+
+
+def test_load_gene2vec_table_skips_malformed_lines(tmp_path):
+    path = tmp_path / "gene2vec.txt"
+    path.write_text("GENE_A 1.0 2.0\n"
+                     "GENE_B " + " ".join(str(float(i)) for i in range(200)) + "\n")
+    table = load_gene2vec_table(path)
+    assert set(table.keys()) == {"GENE_B"}
+
+
+def test_fit_gene2vec_descriptors_reports_coverage_and_falls_back_for_unseen_genes(tmp_path):
+    dataset = _dataset()
+    known_gene = dataset.gene_ids[0]
+    path = tmp_path / "gene2vec.txt"
+    path.write_text(f"{known_gene} " + " ".join(str(float(i)) for i in range(200)) + "\n")
+
+    gene_descriptors, coverage = fit_gene2vec_descriptors(dataset, path)
+    assert known_gene in gene_descriptors
+    assert gene_descriptors[known_gene].shape == (200,)
+    assert coverage == 1 / dataset.n_genes
+
+    desc = descriptor_for_targets([known_gene, "NOT_IN_TABLE"], gene_descriptors, descriptor_dim=200)
+    assert not np.all(desc[0] == 0)
+    assert np.all(desc[1] == 0)

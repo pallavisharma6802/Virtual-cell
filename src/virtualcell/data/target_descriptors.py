@@ -18,6 +18,8 @@ adding real coverage/provenance documentation first, not here.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from sklearn.decomposition import PCA
 
@@ -88,6 +90,56 @@ def fit_coexpression_descriptors(
     reduced = pca.fit_transform(corr)
 
     return {gene: reduced[i].astype(np.float32) for i, gene in enumerate(dataset.gene_ids)}
+
+
+def load_gene2vec_table(path: str | Path) -> dict[str, np.ndarray]:
+    """Load the Gene2Vec pretrained gene-embedding table (MIT license,
+    https://github.com/jingcheng-du/Gene2vec, Du et al. 2019 BMC
+    Genomics): a 200-dimension vector per human gene symbol, trained
+    purely from gene co-expression patterns across 984 independent GEO
+    expression datasets. This is a genuine external pretrained
+    representation (Milestone 5) -- unlike `fit_coexpression_descriptors`
+    above, it is not derived from this project's own dataset at all, so
+    it cannot leak train/test information through that route, and it
+    carries real cross-study biological signal that a 2-scalar mean/std
+    descriptor cannot.
+
+    Format: whitespace-separated text, one gene per line, gene symbol
+    first then 200 floats.
+    """
+    table: dict[str, np.ndarray] = {}
+    with open(path) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) != 201:
+                continue
+            gene, vec = parts[0], parts[1:]
+            table[gene] = np.asarray(vec, dtype=np.float32)
+    return table
+
+
+def fit_gene2vec_descriptors(
+    dataset: CanonicalDataset, embedding_path: str | Path
+) -> tuple[dict[str, np.ndarray], float]:
+    """Pretrained Gene2Vec descriptor per gene in this dataset's own gene
+    vocabulary (so `descriptor_for_targets` can look up any target by its
+    gene symbol, seen or held-out, exactly as the other descriptors do).
+
+    No leakage risk from the dataset itself (the embedding table is
+    external and fixed before this project's experiments), so unlike the
+    other two descriptors this does not need `manifest`/train-only
+    masking.
+
+    Returns `(gene_descriptors, coverage)` where `coverage` is the
+    fraction of this dataset's genes found in the Gene2Vec vocabulary --
+    report this honestly; a gene missing from the table falls back to
+    the zero vector (via `descriptor_for_targets`'s existing fallback),
+    which is a real limitation, not a silent full-coverage success.
+    """
+    table = load_gene2vec_table(embedding_path)
+    found = {gene: table[gene] for gene in dataset.gene_ids if gene in table}
+    coverage = len(found) / len(dataset.gene_ids) if dataset.gene_ids else 0.0
+    return found, coverage
 
 
 def descriptor_for_targets(

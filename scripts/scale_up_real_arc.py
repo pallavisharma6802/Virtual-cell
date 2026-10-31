@@ -37,6 +37,7 @@ from virtualcell.data.target_descriptors import (
     descriptor_for_targets,
     fit_coexpression_descriptors,
     fit_control_mean_std_descriptors,
+    fit_gene2vec_descriptors,
 )
 from virtualcell.evaluation.metrics import grouped_bootstrap_ci, improvement_over_no_effect, mae, rmse
 from virtualcell.evaluation.report import build_full_report
@@ -388,7 +389,8 @@ def hyperparameter_sweep(train_ctrl, train_desc, train_delta, val_ctrl, val_desc
 
 def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_size: int,
         n_top_genes: int, n_workers: int, descriptor: str = "mean_std", n_components: int = 20,
-        source_path: str = ARC_CHALLENGE_TRAIN_URL) -> dict:
+        source_path: str = ARC_CHALLENGE_TRAIN_URL,
+        gene2vec_path: str | None = None) -> dict:
     print(f"Loading Arc Virtual Cell Challenge dataset from {source_path} (backed mode)...")
     full_dataset = load_arc_challenge_dataset(source_path, backed="r")
     t0 = time.time()
@@ -405,10 +407,18 @@ def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_s
     print(f"Split: {len(manifest.train_targets)} train / {len(manifest.val_targets)} val / {len(manifest.test_targets)} test targets")
 
     scaler = fit_scaler(dataset, manifest)
+    gene2vec_coverage = None
     if descriptor == "coexpression":
         print(f"Fitting co-expression target descriptor (n_components={n_components})...")
         gene_descriptors = fit_coexpression_descriptors(dataset, manifest, n_components=n_components, seed=seed)
         descriptor_dim = min(n_components, dataset.n_genes)
+    elif descriptor == "gene2vec":
+        if not gene2vec_path:
+            raise ValueError("descriptor='gene2vec' requires --gene2vec-path")
+        print(f"Loading pretrained Gene2Vec target descriptor from {gene2vec_path}...")
+        gene_descriptors, gene2vec_coverage = fit_gene2vec_descriptors(dataset, gene2vec_path)
+        descriptor_dim = 200
+        print(f"Gene2Vec vocabulary coverage: {gene2vec_coverage:.1%} of this dataset's {dataset.n_genes} genes")
     else:
         gene_descriptors = fit_control_mean_std_descriptors(dataset, manifest)
         descriptor_dim = 2
@@ -477,6 +487,7 @@ def run(output_dir: Path, seed: int, cells_per_target_cap: int, control_sample_s
         "pilot_note": f"SCALED-UP subsample: {dataset.n_cells} cells (full dataset has 221,273).",
         "descriptor": descriptor,
         "descriptor_dim": descriptor_dim,
+        "gene2vec_coverage": gene2vec_coverage,
         "dataset": {
             "n_cells": dataset.n_cells, "n_genes": dataset.n_genes,
             "n_targets": len(dataset.targets()), "fetch_time_seconds": fetch_time,
@@ -506,8 +517,12 @@ def main() -> None:
     parser.add_argument("--control-sample-size", type=int, default=3000)
     parser.add_argument("--n-top-genes", type=int, default=1500)
     parser.add_argument("--n-workers", type=int, default=12)
-    parser.add_argument("--descriptor", choices=["mean_std", "coexpression"], default="mean_std")
+    parser.add_argument("--descriptor", choices=["mean_std", "coexpression", "gene2vec"], default="mean_std")
     parser.add_argument("--n-components", type=int, default=20)
+    parser.add_argument("--gene2vec-path", type=str, default=None,
+                         help="Path to the Gene2Vec pretrained embedding text file "
+                              "(data/gene2vec/gene2vec_dim_200_iter_9.txt). Required when "
+                              "--descriptor gene2vec is used.")
     parser.add_argument("--h5ad-path", type=str, default=ARC_CHALLENGE_TRAIN_URL,
                          help="Local file path or gs:// URL for the Arc h5ad. Use a local path "
                               "(after scripts/download_arc_h5ad.py) to avoid the scattered-remote-"
@@ -517,6 +532,7 @@ def main() -> None:
         args.output_dir, seed=args.seed, cells_per_target_cap=args.cells_per_target_cap,
         control_sample_size=args.control_sample_size, n_top_genes=args.n_top_genes, n_workers=args.n_workers,
         descriptor=args.descriptor, n_components=args.n_components, source_path=args.h5ad_path,
+        gene2vec_path=args.gene2vec_path,
     )
     print(json.dumps({k: v for k, v in summary.items() if k != "per_target"}, indent=2, default=str))
 

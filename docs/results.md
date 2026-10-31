@@ -472,6 +472,67 @@ target descriptor instead) — scaling data further is not expected to
 change this conclusion on its own, since the gap direction held across
 a ~4x data increase.
 
+## Milestone 5: pretrained Gene2Vec descriptor does NOT help either
+
+Per the agreed next step after the scale-up result above ("re-evaluate
+whether to invest in the conditional architecture itself... or move to
+Milestone 5"), swapped the shared weak 2-scalar control-mean/std target
+descriptor for a genuine external pretrained gene representation:
+**Gene2Vec** (Du et al. 2019, BMC Genomics; MIT license;
+`data/gene2vec/gene2vec_dim_200_iter_9.txt`, downloaded from
+https://github.com/jingcheng-du/Gene2vec) — a 200-dimension vector per
+human gene symbol, trained purely from gene co-expression patterns
+across 984 *independent* GEO expression datasets. Unlike the earlier
+`fit_coexpression_descriptors` (ruled out above), this is not derived
+from this project's own dataset at all, so it is a genuinely different
+test of "does a richer target descriptor help," not a repeat of the
+earlier negative result with the same underlying data source.
+
+Same protocol, same 106,287-cell/150-target subsample/split as the
+scale-up run above, same independently-tuned baseline ladder, only the
+descriptor changed (2 dims -> 200 dims). Vocabulary coverage: 95.9% of
+this dataset's 2,500 genes found in the Gene2Vec table (the rest fall
+back to a zero vector; this is a real, acknowledged coverage gap, not
+hidden). Run artifacts: `outputs/scale_up_gene2vec/metrics.json`,
+`outputs/scale_up_gene2vec/run.log`. Implementation:
+`fit_gene2vec_descriptors`/`load_gene2vec_table` in
+`src/virtualcell/data/target_descriptors.py`.
+
+| model | mean/std descriptor (test MAE) | Gene2Vec descriptor (test MAE) | change |
+|---|---|---|---|
+| PCA+ridge (tuned) | 0.907 | 0.911 | slightly worse |
+| small MLP (tuned) | 0.891 | 0.893 | slightly worse |
+| conditional model (tuned) | 0.895 | **0.901** | **slightly worse** |
+
+**The richer, genuinely external pretrained descriptor did not help any
+of the three models — all three got very slightly worse, and the small
+MLP still wins over the tuned conditional model, by a slightly wider
+margin than with the weak descriptor (0.008 MAE vs. 0.004).** This is
+not noise-sized but is small; the direction (uniformly worse, not
+mixed) across all three independently-tuned models is the more telling
+part than the magnitude.
+
+This is a real, informative negative result, not an inconclusive one:
+it rules out "the shared target descriptor's information content is
+the bottleneck" as the explanation for the architecture gap — the
+specific richer descriptor tested here (co-expression-based,
+pretrained externally) carries real biological signal but about the
+*wrong* thing for this task. Gene2Vec encodes which genes tend to be
+co-expressed across many unrelated expression studies (a general
+"functional neighborhood" signal); it does not encode anything about
+how strongly or in which direction a specific CRISPR knockdown of that
+gene shifts other genes' expression in *this* cell population — the
+actual quantity the models must predict. A gene can have an
+informative co-expression neighborhood and still be a weak predictor
+of its own knockdown's downstream magnitude, and that appears to be
+what happened here.
+
+**Remaining live hypothesis:** the architecture itself (separate
+control/target encoders + fusion vs. direct concatenation), now the
+only one of the original four (target descriptor richness, overfitting,
+training budget, architecture) not yet ruled out by a direct
+experiment at scale.
+
 ## Conclusions
 
 - **H1 (conditional model beats no-effect baseline on held-out targets):**
@@ -498,17 +559,22 @@ a ~4x data increase.
   not clearly, by the best evidence available (the fair, all-tuned
   comparison) — the small MLP currently wins, and this held up after a
   ~4x scale-up to ~106k real cells (small MLP 0.891 vs. conditional
-  0.895 test MAE — see "Scale-up to ~106k real cells" above). Scale is
-  no longer a live explanation for the gap, since more data did not
-  reverse or close it. The remaining candidates are the architecture
-  itself (separate encoders + fusion vs. direct concatenation) or the
-  shared weak target descriptor as the real bottleneck — not yet
-  determined which, but the descriptor is the more likely one given
-  it's shared and weak across all three models equally.
-- **Does a richer target descriptor help?** No, by this evidence — the
-  co-expression descriptor didn't clearly improve any model at the
-  smaller real-data scale, and was not re-tested at the larger scale this
-  session.
+  0.895 test MAE) AND after swapping in a genuinely richer pretrained
+  target descriptor (small MLP 0.893 vs. conditional 0.901 test MAE —
+  see "Milestone 5" above). Both scale and descriptor richness are now
+  ruled out as explanations for the gap. The one remaining live
+  hypothesis is the architecture itself (separate control/target
+  encoders + fusion vs. direct concatenation) — not yet tested directly.
+- **Does a richer target descriptor help?** No, by two independent
+  pieces of evidence now: the in-dataset co-expression descriptor
+  didn't clearly improve any model at the smaller real-data scale, and
+  the genuinely external pretrained Gene2Vec descriptor made all three
+  models (PCA+ridge, small MLP, conditional) very slightly *worse* at
+  the ~106k-cell scale (see "Milestone 5" above) rather than better.
+  Descriptor richness is not the bottleneck; the likely explanation is
+  that Gene2Vec's co-expression-based signal doesn't encode the thing
+  these models actually need to predict (knockdown response magnitude/
+  direction), not that richness per se doesn't matter.
 - **Before escalating to Milestone 5's pretrained foundation encoder:**
   the evidence currently argues against it. A bigger model is unlikely
   to help if a single hidden layer already beats the current conditional

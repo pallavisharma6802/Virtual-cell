@@ -1066,3 +1066,45 @@ Per owner instruction, the persistent EC2 instance (`virtualcell-working`,
 results were pulled back locally, to halt compute billing while
 preserving the environment/venv/local h5ad copy/cache for a cheap
 resume later.
+
+## 2026-11-11: Milestone 5 — pretrained Gene2Vec descriptor tested, does not help
+
+Owner asked directly what to try next after the scale-up result showed
+the architecture gap persisting at ~106k cells. Recommendation given
+(and followed): descriptor richness was the more likely bottleneck than
+architecture, since the 2-scalar mean/std descriptor is shared and weak
+across all three models equally — swap it for a genuine pretrained gene
+representation (Milestone 5) before any further architecture tweaking.
+
+Selected **Gene2Vec** (Du et al. 2019, BMC Genomics; MIT license;
+github.com/jingcheng-du/Gene2vec) over Geneformer/scGPT: a plain
+200-dim-per-gene-symbol text file (54MB), trained on real external
+co-expression data across 984 independent GEO studies, requires no GPU,
+no transformer loading, no Ensembl-ID mapping — directly keyed by gene
+symbol, which is what this project's gene vocabulary already uses.
+Checked license (MIT) and vocabulary coverage against this project's
+gene set before using it, per the plan's "inspect pretrained checkpoint
+license and compatible inputs" instruction.
+
+Implementation: `load_gene2vec_table`/`fit_gene2vec_descriptors` in
+`src/virtualcell/data/target_descriptors.py` (new unit tests in
+`tests/test_target_descriptors.py`), wired into
+`scripts/scale_up_real_arc.py` via `--descriptor gene2vec
+--gene2vec-path <file>`. Reused the already-fixed 106,287-cell cache
+from the prior scale-up run (EC2 instance stopped between runs, started
+back up for this one, data/cache persisted across the stop/start as
+expected — only the public IP changed).
+
+**Result: the richer pretrained descriptor made all three models
+(PCA+ridge, small MLP, conditional model) very slightly WORSE, not
+better**, and the small MLP still beat the tuned conditional model, by
+a slightly wider margin than before. Full numbers and interpretation in
+docs/results.md under "Milestone 5: pretrained Gene2Vec descriptor does
+NOT help either". This rules out descriptor-richness-in-general as the
+bottleneck — Gene2Vec's co-expression-based signal is real and external
+but apparently answers a different question (general functional
+neighborhood) than what these models need (this specific knockdown's
+response magnitude/direction).
+
+EC2 instance (`virtualcell-working`) stopped again after pulling
+results, per owner's "stop everything once finished" instruction.
