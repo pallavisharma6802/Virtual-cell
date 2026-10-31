@@ -527,11 +527,12 @@ informative co-expression neighborhood and still be a weak predictor
 of its own knockdown's downstream magnitude, and that appears to be
 what happened here.
 
-**Remaining live hypothesis:** the architecture itself (separate
-control/target encoders + fusion vs. direct concatenation), now the
-only one of the original four (target descriptor richness, overfitting,
-training budget, architecture) not yet ruled out by a direct
-experiment at scale. A fifth candidate — too few distinct training
+**Standing on the architecture hypothesis:** separate control/target
+encoders + fusion (the conditional model) has now lost to plain
+concatenation (the small MLP) in every real-data comparison run at
+every scale — this already *is* the architecture test, run repeatedly,
+not an untested hypothesis (see "Conclusions" below for the correction
+to earlier framing in this doc). A fifth candidate — too few distinct training
 targets — was tested in Milestone 6 (below) on a ~15x-larger-target-
 count dataset and also did not fix the gap, with caveats noted there.
 
@@ -599,8 +600,18 @@ richness, overfitting, training budget, architecture itself), three are
 now ruled out by direct experiment (richness: Milestone 5; overfitting
 and training budget: earlier sessions). A newly tested fifth candidate —
 too few distinct training targets — is also not supported as the fix,
-within this experiment's caveats above. Architecture itself remains the
-only hypothesis of the original four not yet directly tested.
+within this experiment's caveats above. That leaves architecture itself
+as the only one of the original four candidates not yet *ruled out* —
+but on reflection it has in fact been *tested*, repeatedly, throughout
+this whole project: the small-MLP-vs-conditional-model comparison run in
+every real-data experiment (baseline ladder, scale-up, Milestone 5) IS
+that test, since the small MLP is a plain concatenation of control
+profile + target descriptor into one network, while the conditional
+model uses separate encoders + a fusion block on the same two inputs.
+The small MLP has won every single time. So the honest standing is not
+"architecture untested" — it's "architecture tested and the simpler one
+keeps winning," consistently, across three independent experiments at
+two different scales with two different descriptors.
 
 ## Conclusions
 
@@ -630,10 +641,17 @@ only hypothesis of the original four not yet directly tested.
   ~4x scale-up to ~106k real cells (small MLP 0.891 vs. conditional
   0.895 test MAE) AND after swapping in a genuinely richer pretrained
   target descriptor (small MLP 0.893 vs. conditional 0.901 test MAE —
-  see "Milestone 5" above). Both scale and descriptor richness are now
-  ruled out as explanations for the gap. The one remaining live
-  hypothesis is the architecture itself (separate control/target
-  encoders + fusion vs. direct concatenation) — not yet tested directly.
+  see "Milestone 5" above), AND after swapping to a dataset with ~15x
+  more distinct targets (Milestone 6, below). Scale, descriptor
+  richness, and target-count have all been ruled out as explanations
+  for the gap — and the architecture comparison itself (separate
+  control/target encoders + fusion vs. direct concatenation) is exactly
+  what this small-MLP-vs-conditional test *is*, run four times now,
+  with the plain concatenation architecture winning every time. The
+  honest conclusion is not "architecture untested" but "the extra
+  architectural complexity actively does not pay for itself here" — the
+  simplest model in the ladder is currently this project's best-
+  validated approach.
 - **Does a richer target descriptor help?** No, by two independent
   pieces of evidence now: the in-dataset co-expression descriptor
   didn't clearly improve any model at the smaller real-data scale, and
