@@ -531,7 +531,76 @@ what happened here.
 control/target encoders + fusion vs. direct concatenation), now the
 only one of the original four (target descriptor richness, overfitting,
 training budget, architecture) not yet ruled out by a direct
-experiment at scale.
+experiment at scale. A fifth candidate — too few distinct training
+targets — was tested in Milestone 6 (below) on a ~15x-larger-target-
+count dataset and also did not fix the gap, with caveats noted there.
+
+## Milestone 6: ~15x more distinct targets does NOT fix the gap either
+
+**Hypothesis tested:** maybe Arc's 150 distinct target genes (90 train)
+is simply too few to learn any generalizable "target -> effect" mapping,
+regardless of descriptor quality or architecture — i.e. the bottleneck is
+training-set *target diversity*, not model design.
+
+**Data:** switched to Replogle et al. 2022 (*Cell*), the K562 "essential"
+genome-scale Perturb-seq dataset — a completely different, genuinely
+public dataset (CC BY-NC-SA 4.0, non-commercial research use; downloaded
+directly from its Figshare+ deposit, doi 10.25452/figshare.plus.20029387,
+file `K562_essential_raw_bulk_01.h5ad`, ~80MB pseudobulk release, no EC2
+needed). This file has **2,008 distinct perturbed genes** (plus 163
+non-targeting control replicates) across 8,563 profiled genes — about
+15x more distinct targets than Arc's 150.
+
+**Important caveat — not a fully fair comparison to the Arc runs:** this
+release is *pseudobulk* (one row per perturbation = mean across that
+perturbation's cells), not per-cell. So there is no per-cell control
+profile that varies across examples — every example shares the same
+single global control pseudobulk vector, meaning the "control" input
+carries zero information and models can only use the target descriptor.
+This makes the two baselines directly comparable to each other within
+this experiment, but not a clean apples-to-apples comparison to the
+Arc per-cell pilots.
+
+**Setup:** held-out-target split, 1,405 train / 301 val / 302 test
+targets. Same two descriptors as Milestone 5 (2-scalar control mean/std,
+and pretrained Gene2Vec — 92.9% coverage of this dataset's genes), same
+baseline-ladder code (PCA+ridge, small MLP, swept the same way).
+
+**Result:**
+
+| Descriptor | No-effect MAE | PCA+ridge test MAE | Small MLP test MAE | Best improvement over no-effect |
+|---|---|---|---|---|
+| mean/std | 0.2160 | 0.2094 | 0.2119 | 3.1% |
+| gene2vec | 0.2160 | 0.2060 | 0.2118 | **4.6%** |
+
+(`outputs/replogle_target_scaling/metrics.json`)
+
+**Interpretation:** with ~15x more distinct training targets, the best
+improvement over no-effect (4.6%, gene2vec + ridge) is *smaller* than
+what the Arc pilots got with only 90 train targets (14-19% over
+no-effect). More distinct targets did not fix the problem — if anything
+the gap to no-effect got worse here. This argues against "too few
+distinct targets" as the bottleneck, at least as the dominant one. Two
+honest confounds limit how far this generalizes: (1) the missing
+per-cell control signal in this pseudobulk release may itself suppress
+achievable improvement independent of target count — the Arc pilots'
+better relative numbers may come partly from control-profile information
+these models don't have access to here; (2) this is pseudobulk
+fold-change, a different (and possibly noisier per-target, since no
+cell-level averaging-out-of-noise within a model's forward pass) target
+than Arc's per-cell delta. A fully controlled version of this experiment
+would need a per-cell version of a many-target dataset (e.g. the GWPS or
+RPE1 Replogle releases, or K562 essential's own raw single-cell file,
+~10GB) — not attempted here for cost/time reasons.
+
+**Updated standing on the four original hypotheses:** of the original
+four candidate explanations for the architecture gap (descriptor
+richness, overfitting, training budget, architecture itself), three are
+now ruled out by direct experiment (richness: Milestone 5; overfitting
+and training budget: earlier sessions). A newly tested fifth candidate —
+too few distinct training targets — is also not supported as the fix,
+within this experiment's caveats above. Architecture itself remains the
+only hypothesis of the original four not yet directly tested.
 
 ## Conclusions
 

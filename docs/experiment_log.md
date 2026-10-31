@@ -1108,3 +1108,65 @@ response magnitude/direction).
 
 EC2 instance (`virtualcell-working`) stopped again after pulling
 results, per owner's "stop everything once finished" instruction.
+
+## 2026-11-11/12: Milestone 6 — more distinct targets tested (overnight, no EC2)
+
+Owner went to sleep with instructions to keep iterating autonomously
+toward a working approach, using cloud compute only when actually
+running a job and shutting it down otherwise. Picked up the one new
+hypothesis raised in conversation before they signed off: maybe Arc's
+150 distinct target genes (only 90 in train) is itself too few for any
+model to learn a generalizable target->effect mapping, independent of
+descriptor quality or architecture.
+
+Investigated whether a public Perturb-seq dataset exists with
+substantially more distinct targets than Arc. Found Replogle et al.
+2022 (*Cell*) genome-scale Perturb-seq: K562 "essential" screen has
+~2,057-2,285 distinct targets (vs Arc's 150), K562 genome-wide ~9,866,
+RPE1 essential similar to K562 essential. License: CC BY-NC-SA 4.0
+(non-commercial research use — fine for this project, not for any
+future commercial use). Source: figshare+ 20029387 (Figshare's own page
+blocks automated fetches with a WAF challenge, but its public JSON API,
+`api.figshare.com/v2/articles/20029387`, is not blocked and lists every
+file's direct `ndownloader.figshare.com` URL, exact size, and MD5 —
+used that instead of trying to access the HTML page as a browser).
+
+Deliberately picked the **pseudobulk** release
+(`K562_essential_raw_bulk_01.h5ad`, ~80MB) over the ~10GB raw
+single-cell file for this first pass — small enough to download and run
+entirely on this laptop, no EC2 needed at all, so no AWS cost or
+start/stop cycle for this experiment. Downloaded to
+`data/replogle_k562_essential/` (gitignored, like other `data/*`
+content).
+
+Implemented `scripts/replogle_target_scaling.py`: parses the target
+gene symbol out of this file's obs index format, separates the 163
+non-targeting control replicates from 2,122 perturbation rows (some
+genes have more than one row, for different CRISPR guide-pair variants,
+e.g. "_P1_", "_P2_", "_P1P2_" suffixes — 2,122 rows collapse to 2,008
+distinct target genes), builds a held-out-target split
+(1,405 train / 301 val / 302 test — vs Arc's 90/30/30; this file's
+2,008 distinct targets came up a bit short of the ~2,057-2,285 figures
+reported for this screen elsewhere, not investigated further since it's
+still ~15x Arc's count either way), and reuses the
+same `PCARidgeBaseline`/`SmallMLPBaseline` code and the same two target
+descriptors (mean/std read from this file's own control statistics,
+and the same pretrained Gene2Vec table from Milestone 5) unchanged.
+Ran locally in under a minute (tiny dataset).
+
+**Result: ~15x more distinct targets did not fix the gap — the best
+improvement over no-effect (4.6%, Gene2Vec+ridge) was smaller than what
+Arc's pilots got with only 90 train targets (14-19%).** Full numbers,
+and the important caveat that this pseudobulk release has no per-cell
+control signal (so it isn't a fully fair comparison to the Arc
+per-cell pilots), are in docs/results.md under "Milestone 6: ~15x more
+distinct targets does NOT fix the gap either". This is a genuine,
+documented negative result, not a dead end dressed up as progress: it
+argues against "too few distinct targets" as *the* dominant bottleneck,
+though the pseudobulk confound means it doesn't fully settle the
+question.
+
+No AWS resources were started for this milestone (pure local compute),
+so there is nothing to stop/verify-stopped — standing EC2 instance
+(`virtualcell-working`) was already stopped from Milestone 5 and was
+never touched this round.
