@@ -8,6 +8,7 @@ from virtualcell.data.target_descriptors import (
     fit_coexpression_descriptors,
     fit_control_mean_std_descriptors,
     fit_gene2vec_descriptors,
+    fit_response_role_descriptors,
     load_gene2vec_table,
 )
 
@@ -84,3 +85,28 @@ def test_fit_gene2vec_descriptors_reports_coverage_and_falls_back_for_unseen_gen
     desc = descriptor_for_targets([known_gene, "NOT_IN_TABLE"], gene_descriptors, descriptor_dim=200)
     assert not np.all(desc[0] == 0)
     assert np.all(desc[1] == 0)
+
+
+def test_fit_response_role_descriptors_covers_every_profiled_gene_including_non_targets():
+    rng = np.random.default_rng(0)
+    gene_names = [f"G{i}" for i in range(10)]
+    train_targets = ["G0", "G0", "G1", "G2", "G3"]
+    train_delta = rng.normal(size=(5, len(gene_names))).astype(np.float32)
+
+    descriptors = fit_response_role_descriptors(train_targets, train_delta, gene_names, n_components=3, seed=0)
+
+    assert set(descriptors.keys()) == set(gene_names)
+    assert descriptors["G9"].shape == (3,)  # G9 was never a train target, still gets a descriptor
+
+
+def test_fit_response_role_descriptors_held_out_target_not_derived_from_its_own_row():
+    rng = np.random.default_rng(1)
+    gene_names = [f"G{i}" for i in range(6)]
+    train_targets = ["G0", "G1", "G2"]
+    train_delta = rng.normal(size=(3, len(gene_names))).astype(np.float32)
+
+    descriptors = fit_response_role_descriptors(train_targets, train_delta, gene_names, n_components=2, seed=0)
+    held_out_gene = "G5"
+    assert held_out_gene not in train_targets
+    assert held_out_gene in descriptors
+    assert descriptors[held_out_gene].shape == (2,)

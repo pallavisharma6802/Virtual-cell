@@ -667,6 +667,91 @@ used" (plausibly the missing per-cell control signal noted as a caveat
 in Milestone 6, or inherent pseudobulk noise in the delta target
 itself).
 
+## Milestone 8: per-cell + many-targets at once — the missing per-cell signal confirmed
+
+**Hypothesis tested:** Milestones 6 and 7's biggest confound was that the
+Replogle pseudobulk release has no per-cell control variation — every
+example shared one constant global control vector. Does real per-cell
+control signal, combined with Replogle's ~15x-larger target count,
+recover improvements closer to Arc's (14-19%) than the pseudobulk
+runs' (3-5%)?
+
+**Data:** switched to the RAW SINGLE-CELL release of the same dataset
+(`K562_essential_raw_singlecell_01.h5ad`, same Figshare+ deposit, CC
+BY-NC-SA 4.0, ~10.6GB). Unlike the pseudobulk file, this has one row per
+actual cell, a `gene` obs column directly giving each cell's
+perturbation target ("non-targeting" for controls), and 310,385 total
+cells. Downloaded once to EC2 local disk (same scattered-remote-access
+lesson as Arc applies: never read this via range requests).
+
+**Setup:** memory-bounded two-pass sampling like the Arc scale-up script
+(capped at 40 cells/target, 4,000 control cells, top-1,500-variable
+genes by train-control variance) — 84,239 cells sampled, 2,057 distinct
+targets (>=5 cells each), held-out-target split 1,439 train / 309 val /
+309 test. Real per-cell control profiles this time: each example's
+"control" input is an actual sampled control cell, not a constant.
+Same three descriptors as Milestones 6/7 (mean/std, Gene2Vec, and the
+response-role descriptor ported into `target_descriptors.py` for reuse),
+same PCA+ridge/small-MLP sweep code.
+
+This run took far longer than the pseudobulk version on the same EC2
+instance (~3 hours vs under a minute) — expected, since it is training
+on ~56,000 per-cell training rows x up to 1,700 features instead of
+~1,400 pseudobulk rows, confirmed genuinely CPU-bound throughout via the
+same CPU-liveness watchdog pattern used in earlier milestones (never
+stalled, consistently 190%+ CPU on the 2-vCPU instance).
+
+**Result:**
+
+| Descriptor | Best test MAE | Improvement over no-effect (4.414) |
+|---|---|---|
+| mean/std | 3.805 (ridge) | **13.8%** |
+| gene2vec | 3.816 (ridge) | 13.6% |
+| response_role | 3.805 (ridge) | **13.8%** |
+
+(`outputs/replogle_percell_scale/metrics.json`)
+
+**Interpretation, two findings at once:**
+
+1. **The missing per-cell control signal WAS the dominant factor in
+   Milestones 6/7's weak numbers.** With real per-cell control profiles
+   restored, improvement over no-effect jumped from the pseudobulk
+   runs' 2.9-4.6% to **13.6-13.8%** — matching Arc's own 14-19% range,
+   using a completely different dataset with ~15x more targets. This
+   confirms the caveat flagged in Milestone 6 was the real explanation,
+   not a minor footnote: pseudobulk's constant-control-input design was
+   quietly capping achievable performance regardless of descriptor or
+   target count.
+2. **Descriptor choice still makes essentially no difference**, even
+   now. Three descriptors spanning weak (2-scalar), rich-correlational
+   (200-dim Gene2Vec), and rich-causal (30-dim response-role) all land
+   within 0.2 percentage points of each other (13.6-13.8%). This is the
+   fourth independent confirmation of this pattern (co-expression,
+   Gene2Vec, response-role, and now again here) across two datasets and
+   both pseudobulk and per-cell regimes. Target-count (Milestone 6) and
+   descriptor kind (Milestone 7) are now both ruled out as the
+   explanation for *why richer descriptors don't help* — the real
+   explanation is almost certainly that **these models aren't using
+   target-gene identity in a fine-grained way at all**, regardless of
+   how it's encoded; they're likely extracting a cruder, still-genuinely
+   useful signal (plausibly "how large is this gene's typical
+   perturbation effect," which a 2-scalar descriptor already captures as
+   well as a 200-dim one) rather than "which specific gene, therefore
+   which specific response pattern."
+
+**Where this leaves the project:** per-cell control signal is now
+confirmed necessary to reach Arc-level improvements on a new dataset,
+closing that open question. But across every descriptor-richness
+experiment run in this project (co-expression, Gene2Vec, response-role,
+now replicated on per-cell data), richness has never moved the needle —
+the ceiling is not about which gene-level descriptor is used. The next
+genuinely different lever would be a method that uses something other
+than a per-gene descriptor altogether — e.g. GEARS-style propagation
+over a gene-ontology similarity graph, built specifically for
+unseen-perturbation prediction rather than adapted from a general-purpose
+gene embedding — not a bigger or more richly-embedded version of the
+same per-target-vector approach already tried four times.
+
 ## Conclusions
 
 - **H1 (conditional model beats no-effect baseline on held-out targets):**

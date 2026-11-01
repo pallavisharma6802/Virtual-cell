@@ -1203,3 +1203,65 @@ near 3-5% over no-effect regardless of which reasonable descriptor is
 used, not that we've picked the wrong one three times running.
 
 No AWS resources used (same local pseudobulk file as Milestone 6).
+
+## 2026-11-12: Milestone 8 — per-cell + many targets, confirms the missing-control-signal caveat
+
+Owner asked to try the per-cell version of the many-target dataset
+(Milestone 6/7's flagged caveat) to settle whether the missing per-cell
+control signal, not target count or descriptor kind, explained those
+weak results. Approved spending real EC2 time/cost on this.
+
+Started `virtualcell-working`, found only 13GB free on the 40GB volume
+(the old Arc full-download h5ad, 15GB, and its subsample cache, 3.1GB,
+were still sitting there from Milestone 5 and are fully reproducible via
+`scripts/download_arc_h5ad.py`) -- deleted both to free ~29GB before
+downloading the new ~10.6GB file, same Figshare+ deposit as Milestone
+6/7 but the raw single-cell release
+(`K562_essential_raw_singlecell_01.h5ad`, file id 35773219, confirmed
+exact byte count matched Figshare's API-reported size).
+
+Wrote `scripts/replogle_percell_scale.py`, reusing the Arc scale-up
+script's memory-bounded two-pass sampling pattern (cap cells/target,
+fetch only sampled row positions, reduce to top-variable genes) since
+this file is too big to load fully into the instance's 7.6GB RAM.
+First attempt failed: assumed the per-cell file's obs index encoded the
+target gene the same way the pseudobulk file's did (regex over the
+index string) -- it doesn't; this file has a real `obs['gene']` column
+("non-targeting" for controls) instead. Fixed by reading that column
+directly, a cleaner source of truth than the pseudobulk file's
+index-embedded format.
+
+Also hit an infra snag worth recording: launching the job via a plain
+`nohup ... &` inside an SSH one-liner let it die silently (no error, no
+OOM evidence in dmesg) partway through once the launching SSH session's
+own connection dropped -- nohup alone wasn't enough. Fixed by relaunching
+with `setsid nohup python3 -u ... < /dev/null > log 2>&1 & disown`
+(explicit stdin redirect + new session + disown), which survived the
+launching SSH connection closing. Lesson for next time: always use this
+fuller detachment pattern for anything expected to outlive a single SSH
+call, not just `nohup &`.
+
+The run itself took ~3 hours on the 2-vCPU instance (vs under a minute
+for the pseudobulk version) -- expected, given ~56,000 per-cell training
+rows x up to 1,700 features vs ~1,400 pseudobulk rows for the MLP sweep.
+Watched it the whole way with the same CPU-liveness watchdog pattern
+from earlier milestones (polling %CPU every 20-25s, only killing on 9
+consecutive near-zero readings) rather than a fixed deadline -- it never
+stalled, staying at 190%+ CPU throughout, so it was left to run to
+completion rather than killed early.
+
+**Result: confirms the per-cell confound WAS the dominant factor.**
+Improvement over no-effect jumped from Milestone 6/7's pseudobulk 2.9-
+4.6% to 13.6-13.8% for all three descriptors once real per-cell control
+profiles were restored -- matching Arc's own 14-19% range, on an
+entirely different dataset with ~15x more targets. At the same time,
+descriptor choice (mean/std, Gene2Vec, response-role) again made
+essentially no difference to each other (13.6% vs 13.8% vs 13.8%) --
+the fourth independent replication of that specific finding. Full
+numbers and interpretation in docs/results.md under "Milestone 8:
+per-cell + many-targets at once — the missing per-cell signal
+confirmed".
+
+EC2 instance (`virtualcell-working`) stopped and confirmed `stopped`
+after pulling `outputs/replogle_percell_scale/metrics.json` and
+`run.log`, per owner's standing cost instruction.

@@ -142,6 +142,39 @@ def fit_gene2vec_descriptors(
     return found, coverage
 
 
+def fit_response_role_descriptors(
+    train_targets: list[str],
+    train_delta: np.ndarray,
+    gene_names: list[str],
+    n_components: int = 30,
+    seed: int = 0,
+) -> dict[str, np.ndarray]:
+    """Milestone 7 descriptor: built from real causal perturbation
+    outcomes, not co-expression. See
+    scripts/replogle_target_scaling.py's original docstring for full
+    rationale -- ported here unchanged so later experiments (e.g. a
+    per-cell dataset) can reuse it instead of re-implementing it.
+
+    Fits PCA on TRAIN's own perturbation-delta matrix (train_targets x
+    profiled genes). Each profiled gene's PCA loading vector becomes its
+    descriptor -- a "response role": how that gene behaves when OTHER
+    genes are perturbed, independent of whether it was itself ever a
+    train target. Non-leaking for a held-out test target because its
+    descriptor never depends on its own perturbation's outcome.
+
+    `train_delta` must contain ONLY train-split perturbation rows,
+    one row per train example (not necessarily one row per train
+    target -- repeated target rows, e.g. multiple cells per target,
+    are fine and simply give the PCA more rows for that target's
+    contribution to the module structure).
+    """
+    n_components = min(n_components, train_delta.shape[0], train_delta.shape[1])
+    pca = PCA(n_components=n_components, random_state=seed)
+    pca.fit(train_delta)
+    loadings = pca.components_.T  # (n_profiled_genes, n_components)
+    return {gene: loadings[i].astype(np.float32) for i, gene in enumerate(gene_names)}
+
+
 def descriptor_for_targets(
     targets: list[str], gene_descriptors: dict[str, np.ndarray], descriptor_dim: int = 2
 ) -> np.ndarray:
