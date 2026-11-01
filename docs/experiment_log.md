@@ -1170,3 +1170,36 @@ No AWS resources were started for this milestone (pure local compute),
 so there is nothing to stop/verify-stopped — standing EC2 instance
 (`virtualcell-working`) was already stopped from Milestone 5 and was
 never touched this round.
+
+## 2026-11-12: Milestone 7 — a causal (not correlational) descriptor also doesn't help
+
+Owner's own instinct after reviewing Milestones 5/6: "embeddings should
+have worked, why is it failing?" Explained that Gene2Vec and the
+in-dataset coexpression descriptor both encode *correlational* signal
+(which genes tend to move together at baseline) rather than *causal*
+signal (which genes change because gene X was knocked out) — a
+plausible reason richness-by-itself hasn't helped. Owner said to try it.
+
+Added `fit_response_role_descriptors` to
+`scripts/replogle_target_scaling.py`: fits PCA on the TRAIN split's own
+perturbation-delta matrix (targets x profiled genes), giving every
+profiled gene a "response role" loading vector built from how it reacts
+when *other* genes are perturbed — genuinely causal signal, and
+non-leaking for held-out targets (a test target's descriptor never uses
+its own perturbation's outcome, only other train targets' effects on
+that same gene-as-output-column). 30 components, 92.7% target coverage
+(same missing genes as Gene2Vec).
+
+**Result: no better than the weak 2-scalar descriptor, and slightly
+worse than Gene2Vec** (mean/std 3.1% over no-effect, gene2vec 4.6%,
+response_role 2.9%). This is a more informative negative result than
+Milestones 5/6: it rules out "co-expression is the wrong kind of signal"
+as the specific failure mode, since a genuinely causal descriptor landed
+in the same narrow band. Full interpretation in docs/results.md under
+"Milestone 7: a descriptor built from real causal effects, not
+co-expression" — current best explanation is that something about this
+pseudobulk/no-per-cell-control regime itself caps achievable improvement
+near 3-5% over no-effect regardless of which reasonable descriptor is
+used, not that we've picked the wrong one three times running.
+
+No AWS resources used (same local pseudobulk file as Milestone 6).

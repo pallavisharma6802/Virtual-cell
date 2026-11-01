@@ -80,6 +80,46 @@ def build_descriptors(
     return mean_std, gene2vec, coverage
 
 
+def fit_response_role_descriptors(
+    train_targets: list[str], train_delta: np.ndarray, gene_names: list[str], n_components: int = 30, seed: int = 0,
+) -> dict[str, np.ndarray]:
+    """Milestone 7: a target descriptor built from REAL causal perturbation
+    outcomes, not co-expression (unlike Gene2Vec/the in-dataset
+    co-expression descriptor). Rationale: Milestones 5 and 6 both failed
+    using co-expression-based signal (how genes correlate in baseline
+    expression) -- a fundamentally different, correlational signal from
+    what this task needs (how perturbing gene X causally changes gene Y).
+
+    Idea: fit PCA on the TRAIN set's own observed perturbation-delta
+    matrix (train_targets x all_profiled_genes). This factors the data
+    into latent "response modules" -- patterns of genes that tend to
+    move together AS A CONSEQUENCE of various perturbations (not as a
+    consequence of merely being correlated at baseline). PCA's
+    components_ matrix is (n_components x n_profiled_genes): column j is
+    gene j's own loading vector, i.e. "this gene's role/participation
+    profile across the observed causal response modules."
+
+    Every profiled gene gets such a loading vector, INCLUDING genes never
+    used as a target in train (any gene can be a downstream/output gene
+    in this matrix regardless of whether it was itself perturbed). So a
+    held-out target gene's descriptor is "how does this gene behave when
+    OTHER genes are perturbed" -- never information from its own
+    perturbation's outcome (that would leak the thing being predicted).
+    This is the non-leaking trick that makes it usable for genuinely
+    unseen targets, same requirement as every other descriptor here.
+
+    `train_delta` must contain ONLY train-split perturbation rows.
+    """
+    n_components = min(n_components, train_delta.shape[0], train_delta.shape[1])
+    from sklearn.decomposition import PCA
+
+    pca = PCA(n_components=n_components, random_state=seed)
+    pca.fit(train_delta)
+    # components_: (n_components, n_profiled_genes) -> transpose for per-gene lookup
+    loadings = pca.components_.T  # (n_profiled_genes, n_components)
+    return {gene: loadings[i].astype(np.float32) for i, gene in enumerate(gene_names)}
+
+
 def descriptor_matrix(targets: list[str], table: dict[str, np.ndarray], dim: int) -> np.ndarray:
     out = np.zeros((len(targets), dim), dtype=np.float32)
     for i, t in enumerate(targets):
@@ -178,8 +218,21 @@ def main():
         "test": np.tile(control_mean, (len(test_idx), 1)),
     }
 
+    print("Fitting response-role descriptor on TRAIN perturbation deltas only ...")
+    response_role_dim = min(30, len(train_idx), pert_delta.shape[1])
+    response_role_table = fit_response_role_descriptors(
+        targets_at(train_idx), pert_delta[train_idx], gene_names, n_components=response_role_dim, seed=args.seed,
+    )
+    response_role_coverage = sum(1 for t in unique_targets if t in response_role_table) / len(unique_targets)
+    print(f"Response-role descriptor coverage: {response_role_coverage:.1%} of {len(unique_targets)} targets "
+          f"({response_role_dim} components)")
+
     results = {}
-    for desc_name, table, dim in (("mean_std", mean_std_table, 2), ("gene2vec", gene2vec_lookup, 200)):
+    for desc_name, table, dim in (
+        ("mean_std", mean_std_table, 2),
+        ("gene2vec", gene2vec_lookup, 200),
+        ("response_role", response_role_table, response_role_dim),
+    ):
         train_desc = descriptor_matrix(targets_at(train_idx), table, dim)
         val_desc = descriptor_matrix(targets_at(val_idx), table, dim)
         test_desc = descriptor_matrix(targets_at(test_idx), table, dim)
@@ -199,6 +252,8 @@ def main():
         "n_distinct_targets": len(unique_targets),
         "n_train_targets": len(train_t), "n_val_targets": len(val_t), "n_test_targets": len(test_t),
         "gene2vec_coverage": gene2vec_coverage,
+        "response_role_coverage": response_role_coverage,
+        "response_role_dim": response_role_dim,
         "results": results,
     }
     out_path = Path(args.output)

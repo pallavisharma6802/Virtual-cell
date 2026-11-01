@@ -613,6 +613,60 @@ The small MLP has won every single time. So the honest standing is not
 keeps winning," consistently, across three independent experiments at
 two different scales with two different descriptors.
 
+## Milestone 7: a descriptor built from real causal effects, not co-expression
+
+**Hypothesis tested:** Milestones 5 and 6 both failed using
+co-expression-based signal (Gene2Vec: cross-study co-expression; the
+in-dataset coexpression descriptor: same idea, smaller scale). Maybe the
+problem isn't "richness" or "quantity" of signal but its *kind*:
+co-expression describes which genes move together at baseline, not which
+genes causally respond when a specific gene is knocked out. Does a
+descriptor built from real observed perturbation *outcomes* do better?
+
+**Method (`response_role` descriptor, implemented in
+`fit_response_role_descriptors`,
+`scripts/replogle_target_scaling.py`):** fit PCA on the TRAIN split's own
+perturbation-delta matrix (1,405 train targets x 8,563 profiled genes),
+factoring it into latent "response modules" — patterns of genes that
+move together as a *consequence* of various perturbations. PCA's
+per-gene loading vector (30 components) becomes that gene's descriptor.
+Critically, every profiled gene gets a loading vector regardless of
+whether it was ever itself a target (because every gene is a column/
+output in the delta matrix), so a held-out test target's descriptor is
+built entirely from *other* genes' perturbation outcomes — never from
+its own, which would leak the prediction target. Coverage: 92.7% of the
+2,008 targets (same genes missing as for Gene2Vec, since both require
+the target to also appear as a profiled output gene).
+
+**Result:**
+
+| Descriptor | Best test MAE | Improvement over no-effect (0.2160) |
+|---|---|---|
+| mean/std | 0.2094 (ridge) | 3.1% |
+| gene2vec | 0.2060 (ridge) | 4.6% |
+| response_role | 0.2096 (ridge) | 2.9% |
+
+(`outputs/replogle_target_scaling/metrics.json`)
+
+**Interpretation: this did not help either** — response_role performed
+essentially the same as the weak 2-scalar mean/std descriptor, and
+slightly *worse* than Gene2Vec, despite being built from genuinely
+causal perturbation data rather than correlational co-expression data.
+This is a more surprising negative result than Milestones 5/6, because
+it rules out the specific mechanism ("wrong kind of signal") proposed
+after those failures. The more likely remaining explanation: in this
+pseudobulk, no-per-cell-control regime, the ceiling on achievable
+improvement may simply be set by how noisy/weak individual perturbation
+effects are at the pseudobulk level relative to the descriptor's
+information content — i.e. three different descriptors (2 scalars,
+200-dim co-expression, 30-dim causal-response) all land in the same
+narrow 3-5% band over no-effect, which looks less like "wrong
+descriptor" and more like "something else is capping this regime's
+achievable performance regardless of which reasonable descriptor is
+used" (plausibly the missing per-cell control signal noted as a caveat
+in Milestone 6, or inherent pseudobulk noise in the delta target
+itself).
+
 ## Conclusions
 
 - **H1 (conditional model beats no-effect baseline on held-out targets):**
