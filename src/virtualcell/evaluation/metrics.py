@@ -51,6 +51,38 @@ def per_target_metrics(
     return results
 
 
+def mean_pearson_across_genes(
+    pred_mean_deltas: dict[str, np.ndarray],
+    true_mean_deltas: dict[str, np.ndarray],
+) -> dict:
+    """Mean Pearson correlation across genes, the standard metric GEARS reports.
+
+    For each gene, correlate the predicted mean expression delta (over the
+    1500-gene output space) with the actual observed mean delta. Then
+    average those per-gene correlations. This is the gene-level metric,
+    not the per-cell metric: it asks 'does the model predict the right
+    *pattern* of change across genes, averaged across cells?'
+    """
+    genes = sorted(set(pred_mean_deltas) & set(true_mean_deltas))
+    if not genes:
+        return {"mean_pearson": float("nan"), "n_genes": 0}
+    pearson_vals = []
+    for g in genes:
+        p, t = pred_mean_deltas[g], true_mean_deltas[g]
+        if np.std(t) == 0 or np.std(p) == 0:
+            pearson_vals.append(0.0)
+        else:
+            r, _ = pearsonr(p, t)
+            pearson_vals.append(float(r))
+    arr = np.array(pearson_vals)
+    return {
+        "mean_pearson": float(arr.mean()),
+        "median_pearson": float(np.median(arr)),
+        "std_pearson": float(arr.std()),
+        "n_genes": len(genes),
+    }
+
+
 def improvement_over_no_effect(model_mae: float, no_effect_mae: float) -> float:
     """Relative MAE improvement vs. the no-effect baseline (positive = better)."""
     if no_effect_mae == 0:

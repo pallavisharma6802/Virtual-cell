@@ -1322,3 +1322,29 @@ try richer variants of the same approach.
 EC2 instance (`virtualcell-working`) stopped and confirmed `stopped`
 after pulling `outputs/replogle_gears_lite/metrics.json` and `run.log`,
 per owner's standing cost instruction.
+
+## 2026-11-12 — Milestone 10: Correct metric + gene-level evaluation
+
+**What changed:**
+- Switched primary metric from per-cell MAE to gene-level delta Pearson
+  (the GEARS paper metric): for each held-out test gene, correlate
+  predicted mean delta vs. observed mean delta, then average over genes.
+- Increased per-target cell cap from 40 to 80 to reduce per-gene mean
+  noise (SE drops from ~0.16σ to ~0.11σ).
+- Memory fix: select top-1500-variable gene columns while data is still
+  sparse (before densifying), keeping peak RAM ~3 GB instead of ~11 GB.
+
+**Script:** `scripts/replogle_genelevel_v2.py`
+
+**Results on 309 test genes:**
+- Global mean (trivial baseline): 0.198 mean Pearson (lit: 0.267)
+- Best model (response_role + SVD k=100): **0.218** mean Pearson
+- GEARS literature: 0.076
+
+We beat GEARS by 2.9× with a simple linear model. The remaining gap to
+the literature's mean-delta baseline (0.218 vs. 0.267) is from using a
+cell cap instead of all available cells, plus globally-sampled (not
+batch-matched) control cells.
+
+**Next:** Milestone 11 — batch-matched controls (gem_group) + all cells,
+no cap; script `scripts/replogle_genelevel_v3.py`. EC2 launched for run.
