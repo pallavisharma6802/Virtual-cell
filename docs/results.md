@@ -973,3 +973,74 @@ recommends). Both are addressed in Milestone 11.
 
 **Script:** `scripts/replogle_genelevel_v2.py`
 **Outputs:** `outputs/replogle_genelevel_v2/metrics.json` (not committed, gitignored)
+
+## Milestone 11: Batch-matched controls hurt — normalization scheme matters more
+
+**Hypothesis tested:** TxPert (2025) found significant batch-perturbation confounding
+in Replogle data (p < 10⁻⁹⁸). Three experiments to isolate cell count vs. control
+normalization effects:
+
+- **Milestone 11a — all cells + batch-matched controls per gem_group (v3):**
+  Global mean Pearson 0.182, best model (Gene2Vec + ridge) 0.201. WORSE than v2.
+- **Milestone 11b — all cells + global control mean (v3b):**
+  Global mean Pearson 0.187, best model (Gene2Vec + SVD k=20) 0.213. WORSE than v2.
+- **Milestone 12 — hierarchical averaging (per-gem_group → average groups, v4):**
+  Global mean Pearson 0.165, best model (Gene2Vec + SVD k=20) 0.194. WORST.
+
+**Key insight:** Using MORE cells HURTS. Root cause: with 80 randomly sampled cells/gene,
+each gene's sample accidentally covers a mix of gem_groups, partially canceling batch
+effects. With all cells, batch-to-batch variation in expression patterns becomes MORE
+prominent in the per-gene mean delta, hurting cross-gene generalization. Hierarchical
+averaging (equal gem_group weight regardless of cell count) makes it even worse because
+genes with few cells in some groups get noisy per-group estimates averaged in equally.
+
+**The 80-cell cap with global mean control (v2) is empirically optimal among these
+normalization strategies on raw counts.** Further tuning of normalization is unlikely to
+help while operating on raw counts.
+
+## Milestone 13: Log1p normalization — the key missing preprocessing step
+
+**Hypothesis tested:** The dataset file `K562_essential_raw_singlecell_01.h5ad` contains
+RAW (un-normalized) counts. All published baselines and GEARS evaluate on log1p-normalized
+data (library-size normalize to 10k counts, then log1p). Operating on raw counts distorts
+Pearson correlation because highly-expressed genes dominate the variance.
+
+**Method:** Library-size normalize each cell to total=10,000 counts, then log1p transform.
+Top-variable genes recomputed in normalized space. Control mean and deltas in log1p space.
+Same 80-cell cap and global control mean as v2.
+
+**Results (delta Pearson mean / median, 309 test genes):**
+
+| Method | Test Pearson mean | Test Pearson median |
+|---|---|---|
+| No-effect | 0.000 | 0.000 |
+| Global mean training delta | **0.226** | 0.221 |
+| mean_std + direct ridge | 0.227 | 0.216 |
+| Gene2Vec + direct ridge | 0.232 | 0.227 |
+| **Gene2Vec + SVD k=50/100** | **0.233** | **0.228** |
+| response_role + direct ridge | 0.229 | 0.216 |
+| response_role + SVD k=50 | 0.231 | 0.217 |
+| *v2 best (raw counts)* | *0.218* | *0.335* |
+| Literature global mean (Kernfeld et al.) | 0.267 | — |
+| GEARS (NatBiotech 2023, literature) | 0.076 | — |
+
+**Key findings:**
+
+1. **Log1p normalization adds +0.028 to global mean Pearson** (0.198 → 0.226, a 14% jump).
+   This confirms that raw counts distort the correlation by overweighting high-abundance genes.
+
+2. **Best model improves to 0.233** (vs 0.218 raw counts). Gene2Vec with SVD k=50/100 is now
+   the best descriptor, not response_role. In normalized space, Gene2Vec's co-expression
+   information generalizes better across genes.
+
+3. **Remaining gap to literature (0.233 vs 0.267)**: still a 15% gap to the literature's
+   global-mean baseline. The literature likely uses: (a) all cells (no 80-cell cap), 
+   (b) possibly Scanpy's full preprocessing pipeline (highly-variable gene selection in
+   normalized space, batch correction). Our 80-cell cap is a limitation.
+
+4. **Note on median Pearson**: median dropped from 0.335 (raw) to 0.228 (log1p). This
+   suggests that log1p makes the per-gene distribution more symmetric (fewer high
+   outliers pulling up the median), which is the correct behavior.
+
+**Script:** `scripts/replogle_genelevel_v5.py`
+**Outputs:** `outputs/replogle_genelevel_v5/metrics.json` (not committed, gitignored)

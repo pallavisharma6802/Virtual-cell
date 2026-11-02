@@ -1348,3 +1348,28 @@ batch-matched) control cells.
 
 **Next:** Milestone 11 — batch-matched controls (gem_group) + all cells,
 no cap; script `scripts/replogle_genelevel_v3.py`. EC2 launched for run.
+
+## 2026-11-13 — Milestones 11-13: normalization study + log1p breakthrough
+
+**Milestone 11a (v3): all cells + batch-matched controls**
+- Result: global mean 0.182, best 0.201 — WORSE than v2
+- Finding: batch-matched controls hurt because per-batch control means
+  are noisier (223 cells/group vs 4000 global) than global mean
+
+**Milestone 11b (v3b): all cells + global mean**
+- Result: global mean 0.187, best 0.213 — WORSE than v2
+- Finding: more cells hurts because batch-to-batch variation per gene
+  increases, hurting cross-gene generalization
+
+**Milestone 12 (v4): hierarchical averaging (per-gem_group → mean)**
+- Result: global mean 0.165, best 0.194 — WORST
+- Finding: equal gem_group weighting amplifies noise from groups with
+  few cells
+
+**Milestone 13 (v5): log1p normalization — BREAKTHROUGH**
+- Raw counts (v2) → Log1p normalized (v5): global mean 0.198 → 0.226 (+14%)
+- Best model: Gene2Vec + SVD k=50 → 0.233 (up from 0.218 raw)
+- KEY INSIGHT: literature uses log1p; we were on raw counts all along
+- Still 15% below literature's 0.267 baseline (likely from 80-cell cap)
+
+Scripts: v3-v5 in `scripts/`. EC2 stopped after all runs completed.

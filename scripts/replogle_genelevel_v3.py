@@ -45,14 +45,23 @@ from virtualcell.data.target_descriptors import (
 MIN_CELLS_PER_TARGET = 5
 
 
-def load_rows_top_genes(adata, row_positions, top_gene_idx):
-    """Load specific rows, selecting gene columns while still sparse."""
-    X_sparse = adata.X[row_positions]
-    X_sub = X_sparse[:, top_gene_idx]
-    return np.asarray(
-        X_sub.todense() if hasattr(X_sub, "todense") else X_sub,
-        dtype=np.float32,
-    )
+def load_rows_top_genes(adata, row_positions, top_gene_idx, chunk_size=8000):
+    """Load specific rows in chunks, selecting gene columns within each chunk.
+
+    Loads at most chunk_size rows at a time to avoid OOM when backed h5py
+    tries to materialize a large 299k x 8563 dense intermediate. Each chunk
+    is chunk_size x 8563 x 4 ≈ 274 MB, well within available RAM.
+    """
+    chunks = []
+    for start in range(0, len(row_positions), chunk_size):
+        chunk_rows = row_positions[start: start + chunk_size]
+        X_chunk = adata.X[chunk_rows]
+        X_sub = X_chunk[:, top_gene_idx]
+        chunks.append(np.asarray(
+            X_sub.todense() if hasattr(X_sub, "todense") else X_sub,
+            dtype=np.float32,
+        ))
+    return np.vstack(chunks)
 
 
 def pearson_per_gene(pred_dict, true_dict):
