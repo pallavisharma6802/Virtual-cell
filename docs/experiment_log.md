@@ -1265,3 +1265,60 @@ confirmed".
 EC2 instance (`virtualcell-working`) stopped and confirmed `stopped`
 after pulling `outputs/replogle_percell_scale/metrics.json` and
 `run.log`, per owner's standing cost instruction.
+
+## 2026-11-12: Milestone 9 — GEARS-lite (GO-similarity effect retrieval) tested and rejected
+
+Owner approved trying a GEARS-style approach after Milestone 8's
+closing recommendation. Implemented a lite version rather than the
+official GEARS package: `torch_geometric` (GEARS's GNN dependency) is
+heavy and not a good fit for a CPU-only free-tier EC2 box, and the
+scientific question -- does GO-similarity-based effect propagation beat
+flat per-gene descriptors -- doesn't require GEARS's exact architecture
+to test.
+
+Built `scripts/go_similarity.py` (parses a GAF annotation file into
+`{gene: {GO:id, ...}}` restricted to Biological Process, plus a Jaccard
+top-k-neighbors helper) and `scripts/replogle_gears_lite.py` (reuses
+Milestone 8's exact per-cell sampling/split pipeline, same seed, for a
+directly comparable result). Downloaded `goa_human.gaf.gz` (~15MB) from
+`https://current.geneontology.org/annotations/annotations/goa_human.gaf.gz`
+-- found via the directory index at `current.geneontology.org/annotations/`
+after an initial `/annotations/gaf` path 403'd. Added
+`tests/test_go_similarity.py` (4 tests, all passing) before running
+anything on EC2.
+
+Restarted the EC2 instance (new IP, recorded in `.aws_infra/public_ip.txt`),
+confirmed the 10.6GB Replogle h5ad was still on local disk from Milestone
+8, copied the two new scripts over, and launched detached with the
+`setsid nohup ... < /dev/null > log 2>&1 & disown` pattern. First attempt
+crashed immediately (`FileNotFoundError` on the h5ad path) because it was
+launched from `~/virtualcell/scripts` instead of `~/virtualcell` -- the
+script uses a relative default path. Fixed by relaunching from the
+correct working directory.
+
+The run finished in under 2 minutes (no model training -- pure
+similarity lookup and averaging is far cheaper than Milestone 8's ridge/
+MLP sweeps over per-cell data). Watched briefly with the CPU-liveness
+watchdog pattern; no stall, finished on its own.
+
+**Result: a clear negative result, not a close call.** GO-similarity
+retrieval (best k=20, chosen by validation MAE) got test MAE 4.409 vs.
+the no-effect baseline's 4.414 -- a 0.1% improvement, essentially no
+better than guessing zero effect for every gene. This is dramatically
+worse than any of Milestone 8's three descriptor+regressor baselines
+(13.6-13.8% improvement). Full numbers and interpretation in
+`docs/results.md` under "Milestone 9: GEARS-lite (GO-similarity effect
+retrieval) — the mechanistically different lever also fails".
+
+This closes out the planned investigation: five structurally different
+ways of representing "which gene was perturbed" (mean/std, Gene2Vec,
+coexpression, response-role, GO-similarity retrieval) have now all been
+tested, and none beats the simplest baseline (PCA+ridge or small MLP
+over a 2-scalar descriptor). Recommending to the owner that further
+iteration on target representation is not a promising direction without
+a different data source or problem framing, rather than continuing to
+try richer variants of the same approach.
+
+EC2 instance (`virtualcell-working`) stopped and confirmed `stopped`
+after pulling `outputs/replogle_gears_lite/metrics.json` and `run.log`,
+per owner's standing cost instruction.

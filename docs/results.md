@@ -752,6 +752,74 @@ unseen-perturbation prediction rather than adapted from a general-purpose
 gene embedding — not a bigger or more richly-embedded version of the
 same per-target-vector approach already tried four times.
 
+## Milestone 9: GEARS-lite (GO-similarity effect retrieval) — the mechanistically different lever also fails
+
+**Hypothesis tested:** Milestone 8 ruled out target-count and descriptor
+kind (correlational vs. causal) as explanations for why richer
+descriptors never help, and proposed one remaining genuinely different
+lever: instead of describing a gene's identity as a flat feature vector
+fed into a generic regressor, predict its effect by borrowing directly
+from functionally similar genes via a gene-ontology similarity graph —
+the core mechanism GEARS (Roohani et al. 2023) is built on.
+
+**Approach:** a lite reimplementation, not the official GEARS package
+(which depends on `torch_geometric` and is impractical on a CPU-only
+free-tier EC2 box). Built a gene-gene similarity graph from GO
+Biological Process term overlap (Jaccard similarity on annotations from
+`goa_human.gaf.gz`, geneontology.org current release, 93.4% coverage of
+the 2,057 Replogle targets). For each held-out target, retrieved its k
+nearest neighbors among TRAIN targets by this similarity and predicted
+its effect as a similarity-weighted average of those neighbors'
+observed mean deltas — direct effect retrieval/propagation through the
+graph, not a descriptor-plus-regressor. k swept over {1,3,5,10,20,50}
+and selected by validation MAE (best k=20). Same exact per-cell
+sample/split as Milestone 8 (same seed), so results are directly
+comparable.
+
+**Result:**
+
+| Approach | Test MAE | Improvement over no-effect (4.414) |
+|---|---|---|
+| GO-similarity retrieval (k=20) | 4.409 | **0.1%** |
+| mean/std descriptor + ridge (Milestone 8) | 3.805 | 13.8% |
+| response_role descriptor + ridge (Milestone 8) | 3.805 | 13.8% |
+
+(`outputs/replogle_gears_lite/metrics.json`)
+
+**Interpretation:** this is a clear negative result — GO-similarity
+effect retrieval performs essentially the same as guessing zero effect
+for every gene, dramatically worse than any of the three simple
+descriptor+regressor baselines from Milestone 8. Two plausible readings:
+(1) GO-BP term overlap, despite being a different *kind* of relationship
+than co-expression or the response-role descriptor, still isn't the
+right notion of "similarity" for predicting perturbation-effect
+magnitude/direction — two genes in the same broad biological process
+(e.g. "regulation of transcription") can have very different knockdown
+effects; or (2) pure nearest-neighbor retrieval, with no learned
+weighting or regression on top, is simply a weaker estimator than a
+PCA+ridge or small-MLP fit over 1,439 training examples — it has no way
+to combine or reweight signal the way a trained regressor does, so even
+a perfect similarity graph would likely still lose to Milestone 8's
+baselines. This result cannot cleanly distinguish between those two
+explanations; a fairer test would feed the GO-similarity neighbors' mean
+deltas as input features into a ridge/MLP rather than using them as the
+final prediction directly, but given how large the gap is (13.8% vs
+0.1%) it is unlikely a learned layer on top would close most of it.
+
+**Where this leaves the project:** five candidate explanations for why
+richer target information never helps have now been tested and rejected
+(descriptor richness, too-few-targets, correlational-vs-causal signal,
+and now graph-based functional-similarity retrieval), on top of
+architecture complexity also consistently underperforming plain
+concatenation. The project's most defensible, thoroughly-tested
+conclusion: a simple PCA+ridge or small-MLP model over (control profile,
+2-scalar target mean/std) already captures essentially all of the
+learnable signal in this problem setup, and none of five structurally
+different ways of representing "which gene was perturbed" has beaten
+it. Further iteration on target representation is not a promising
+direction without a fundamentally different data source (e.g. genuine
+dose-response or time-course perturbation data) or problem framing.
+
 ## Conclusions
 
 - **H1 (conditional model beats no-effect baseline on held-out targets):**
