@@ -1044,3 +1044,46 @@ Same 80-cell cap and global control mean as v2.
 
 **Script:** `scripts/replogle_genelevel_v5.py`
 **Outputs:** `outputs/replogle_genelevel_v5/metrics.json` (not committed, gitignored)
+
+## Milestone 14: All cells + log1p — removing the 80-cell cap
+
+**Hypothesis tested:** The 80-cell cap used in v5 discards the majority of available data.
+In log1p-normalized space, batch noise is reduced (unlike raw counts where the cap acted
+as a regularizer), so using all available cells should produce better per-gene mean delta
+estimates.
+
+**Method:** All target cells (299,694 cells across 2,057 genes, no cap), chunked loading
+with per-chunk log1p normalization. Control mean computed from all 10,691 control cells.
+Top 1500 HVGs selected in log1p space. Same seed=0 train/val/test split.
+
+**Results (delta Pearson mean / median, 309 test genes):**
+
+| Method | Test Pearson mean | Test Pearson median |
+|---|---|---|
+| No-effect | 0.000 | 0.000 |
+| Global mean training delta | **0.237** | 0.224 |
+| mean_std + direct ridge | 0.233 | 0.219 |
+| mean_std + SVD k=100 | 0.237 | 0.229 |
+| Gene2Vec + direct ridge | 0.244 | 0.231 |
+| **Gene2Vec + SVD k=100** | **0.244** | **0.232** |
+| response_role + SVD k=100 | 0.241 | 0.228 |
+| *v5 best (80-cell cap, log1p)* | *0.233* | *0.228* |
+| Literature global mean (Kernfeld et al.) | 0.267 | — |
+
+**Key findings:**
+
+1. **All cells beats 80-cell cap in log1p space** (0.237 vs 0.226 on global mean, +0.011).
+   Unlike raw counts where the cap was optimal, log1p normalization reduces batch effects
+   enough that more cells strictly help.
+
+2. **Best model: Gene2Vec + SVD k=100 = 0.244** (up from 0.233 in v5, +4.7%).
+
+3. **Remaining gap to literature** (0.244 vs 0.267): ~9% gap. The most likely remaining
+   cause is HVG count: literature uses 5000 HVGs, we used 1500. With 5000 HVGs the
+   Pearson is computed over a richer gene space.
+
+4. **Online mean delta approach planned for v7** to handle 299k × 5000 gene matrix within
+   EC2 m7i-flex.large 8GB RAM.
+
+**Script:** `scripts/replogle_genelevel_v6.py`
+**Outputs:** `outputs/replogle_genelevel_v6/metrics.json` (not committed, gitignored)

@@ -1373,3 +1373,26 @@ no cap; script `scripts/replogle_genelevel_v3.py`. EC2 launched for run.
 - Still 15% below literature's 0.267 baseline (likely from 80-cell cap)
 
 Scripts: v3-v5 in `scripts/`. EC2 stopped after all runs completed.
+
+## 2026-11-13 — Milestone 14 (v6): All cells + log1p removes 80-cell cap
+
+**Script:** `scripts/replogle_genelevel_v6.py`  
+**EC2:** i-0a277e6b18a5d5af9 (m7i-flex.large)
+
+**Hypothesis:** Log1p normalization reduces batch noise enough that the 80-cell cap
+used in v5 is no longer beneficial. More cells → better mean delta estimates.
+
+**Method:** 
+- All 299,694 target cells (no cap), 10,691 control cells
+- Chunked loading (8000 rows/chunk), log1p normalize inside each chunk
+- 1500 top-variable HVGs (in log1p space)
+- Same descriptors: mean_std, Gene2Vec, response_role; same SVD/ridge grid
+
+**Results:**
+- Global mean: 0.237 (vs 0.226 with 80-cell cap in v5; vs 0.267 literature)
+- Best: Gene2Vec + SVD k=100 = 0.244 (vs 0.233 in v5)
+- All-cells strictly better in log1p space (hypothesis confirmed)
+
+**Next:** v7 — 5000 HVGs (literature standard) with online mean delta computation
+to fit within EC2 RAM. Hypothesis: the remaining ~9% gap to literature is partly
+explained by using only 1500 instead of 5000 HVGs.
