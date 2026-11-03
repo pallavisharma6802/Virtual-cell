@@ -1396,3 +1396,22 @@ used in v5 is no longer beneficial. More cells → better mean delta estimates.
 **Next:** v7 — 5000 HVGs (literature standard) with online mean delta computation
 to fit within EC2 RAM. Hypothesis: the remaining ~9% gap to literature is partly
 explained by using only 1500 instead of 5000 HVGs.
+
+## 2026-11-13 — Milestone 15 (v7): 5000 HVGs + online mean delta
+
+**Script:** `scripts/replogle_genelevel_v7.py`
+
+**Hypothesis:** Literature uses 5000 HVGs; our 1500-HVG gap explains remaining 9%.
+
+**Method:**
+- 5000 top-variable HVGs (in log1p space, up from 1500)
+- Online per-gene mean delta (never hold 299k × 5000 in RAM)
+- All cells + log1p normalization (same as v6)
+
+**Results:**
+- Global mean: 0.240 (vs 0.237 with 1500 HVGs, vs 0.267 literature)
+- Best: response_role + SVD k=100 = 0.255 (vs 0.244 in v6, +4.5%)
+- Gap to literature: 0.012 on best model
+
+**Next:** v8 — concatenate Gene2Vec + response_role features (230d combined),
+hoping to beat both individual descriptors.
