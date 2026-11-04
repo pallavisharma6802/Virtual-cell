@@ -1445,3 +1445,15 @@ key to approaching the oracle (0.592). NN + ridge ensemble may beat both.
 
 **v9 first attempt OOM-killed** — per-cell delta array (209k × 5000) exceeded 8GB.
 Fixed: cap at 50 cells/gene for response_role (1439 × 50 × 5000 × 4 ≈ 1.4GB).
+
+## 2026-11-13 — Milestone 17 (v9): NN retrieval + per-cell response_role
+
+**Script:** `scripts/replogle_genelevel_v9.py`
+
+**Key results:**
+- NN K=50 (Gene2Vec cosine): 0.232 — FAILS, Gene2Vec ≠ perturbation similarity
+- Per-cell response_role (50-cell cap) + SVD k=100: **0.258** — new best
+- Ensemble of NN + ridge doesn't help (noise from Gene2Vec NN)
+
+**Next (v10):** Predict-then-retrieve: use stage-1 prediction → NN in delta space
+→ weighted mean of training neighbors. Also tries response_role (100-cell cap).

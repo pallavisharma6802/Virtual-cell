@@ -1159,3 +1159,40 @@ Memory budget: ~350 MB peak (vs ~6 GB naive).
    This directly implements the literature's oracle approach (at K=1).
 
 **Script:** `scripts/replogle_genelevel_v8.py`
+
+## Milestone 17: NN retrieval fails; per-cell response_role is new best (0.2575)
+
+**Hypothesis tested:** NN retrieval in Gene2Vec cosine space mimics oracle behavior
+(retrieve most similar training perturbation, predict its delta).
+
+**Results:**
+
+| Method | Test Pearson mean | Test Pearson median |
+|---|---|---|
+| Global mean | 0.240 | 0.211 |
+| NN K=50 (Gene2Vec cosine) | 0.232 | 0.205 |
+| Gene2Vec + ridge | 0.251 | 0.226 |
+| Gene2Vec + SVD k=100 | 0.255 | 0.228 |
+| Ensemble (NN K=50 + ridge, α=0.3) | 0.251 | 0.219 |
+| Response_role (mean-delta approx) | 0.255 | 0.232 |
+| **Response_role (per-cell, 50-cell cap) + SVD k=100** | **0.258** | **0.224** |
+| Literature mean training delta baseline | 0.267 | — |
+
+**Key findings:**
+
+1. **NN in Gene2Vec space fails**: K=50 NN retrieval gives 0.232, far below ridge
+   (0.255). Gene2Vec co-expression similarity does NOT predict perturbation response
+   similarity. The oracle (0.592) retrieves in PERTURBATION DELTA space, not embedding
+   space.
+
+2. **Per-cell response_role = 0.258, new best**: using actual per-cell deltas (50-cell
+   cap, 69k training cells) beats the mean-delta approximation by +0.003. The
+   perturbation response NMF gives a richer gene descriptor when fit on individual cells.
+
+3. **Remaining gap**: 0.267 - 0.258 = **0.009** to literature mean-training-delta baseline.
+
+4. **Predict-then-retrieve** (stage1 prediction → NN in delta space → mean neighbor
+   delta) is the next experiment. This is closer to the oracle, using predicted
+   rather than true deltas for retrieval.
+
+**Script:** `scripts/replogle_genelevel_v9.py`
