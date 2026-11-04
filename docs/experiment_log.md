@@ -1457,3 +1457,76 @@ Fixed: cap at 50 cells/gene for response_role (1439 × 50 × 5000 × 4 ≈ 1.4GB
 
 **Next (v10):** Predict-then-retrieve: use stage-1 prediction → NN in delta space
 → weighted mean of training neighbors. Also tries response_role (100-cell cap).
+
+## 2026-11-13 — Milestone 18 (v10): Predict-then-retrieve — OOM again
+
+**Script:** `scripts/replogle_genelevel_v10.py`
+
+**What was tried:**
+- Vectorized scatter-add (np.add.at) for mean delta accumulation (fix for slow per-cell Python loop)
+- Save mean_delta_cache.npz to disk then delete adata (free page cache) before response_role
+- Re-open adata2 for per-cell response_role (100-cell cap)
+
+**Outcome:** Successfully saved mean_delta_cache.npz (41 MB, 2057 genes × 5000 HVGs).
+OOM-killed again at ~7.7 GB during the response_role data pass (re-opening adata2 reloads
+h5py page cache that wasn't freed). Root cause: 10 GB h5ad on 7.6 GB RAM EC2; two passes
+through the full dataset cannot fit simultaneously.
+
+**Key insight:** The h5py page cache fills after the first pass through 300k cells (~10 GB).
+Re-opening the file for a second pass immediately refills it. Single-pass processing is required.
+
+## 2026-11-13 — Milestone 18 (v11): Fast experiments on cached deltas
+
+**Script:** `scripts/replogle_genelevel_v11.py`
+
+**Key change:** Load mean_delta_cache.npz from v10 (skips the expensive 300k-cell pass).
+Only reads control cells (~10k) to recompute control_mean and HVG selection.
+
+**Bug fixed:** Previous scripts (v7-v9) built the gene2vec lookup from HVG gene names
+(the 5000 output dimensions), not from target gene names (the 2057 perturbed genes).
+Many target genes got zero Gene2Vec vectors. Fixed by explicitly adding target gene names
+to the lookup.
+
+**Results:**
+- Global mean: 0.2405
+- Gene2Vec+SVD k=100: **0.2623** (new best, +0.007 from bug fix alone)
+- Response_role: broken (passed 2057 target names instead of 5000 HVG names as dim labels)
+- Predict-then-retrieve: best blend α=0.0 — no improvement over stage-1
+- Stacked ridge: no improvement
+
+## 2026-11-13 — Milestone 19 (v12): Fixed response_role + nonlinear models
+
+**Script:** `scripts/replogle_genelevel_v12.py`
+
+**Key changes:**
+- Fixed response_role: pass top_gene_names (5000 HVG names) as dimension labels
+- Added Kernel ridge (RBF) on Gene2Vec features
+- Added MLP (200d Gene2Vec → hidden → 50 SVD codes) with dropout + early stopping
+- Added Oracle NN ceiling (true delta cosine similarity)
+- Higher SVD k sweep (200, 300, 500)
+
+**Results:**
+| Model | Test Pearson (mean) | Test Pearson (median) |
+|-------|--------------------|-----------------------|
+| Global mean | 0.2405 | 0.2112 |
+| Gene2Vec + SVD k=100 | 0.2623 | 0.2372 |
+| Response_role + SVD k=100 | 0.2510 | 0.2259 |
+| Concat (G2V+RR) + SVD k=100 | 0.2624 | 0.2374 |
+| Kernel ridge RBF (α=10, γ=0.1) | 0.2655 | 0.2372 |
+| **MLP hidden=256** | **0.2692** | 0.2264 |
+| **MLP hidden=512** | **0.2693** | 0.2194 |
+| Literature mean-delta baseline | 0.267 | — |
+| Oracle NN K=5 (true delta cosine) | 0.4739 | 0.4402 |
+
+**Key findings:**
+1. MLP (0.2693) **exceeds the literature mean training delta baseline (0.267)** for the first time.
+2. Nonlinear models (MLP > KernelRidge RBF > linear ridge) on Gene2Vec features show consistent gain.
+3. Response_role (mean delta approx) adds marginal information over Gene2Vec alone (+0.001).
+4. Oracle NN ceiling = 0.4739 (K=5); our best is 0.2693 → large room for improvement.
+5. Predict-then-retrieve gave no gain because stage-1 predictions aren't accurate enough to
+   identify the right training neighborhood in delta space.
+
+**Gene2Vec coverage:** 2025/2057 target genes (32 genes have no Gene2Vec entry → zero vectors).
+
+**Next:** v13 — MLP ensemble (multiple seeds + wider architecture) + stronger features
+(response_role concat for nonlinear combination, possibly STRING/DepMap features).
