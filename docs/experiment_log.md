@@ -1415,3 +1415,33 @@ explained by using only 1500 instead of 5000 HVGs.
 
 **Next:** v8 — concatenate Gene2Vec + response_role features (230d combined),
 hoping to beat both individual descriptors.
+
+## 2026-11-13 — Milestone 16 (v8): Concatenated descriptors — no synergy
+
+**Script:** `scripts/replogle_genelevel_v8.py`
+
+**Hypothesis:** Concatenating Gene2Vec (200d) + response_role (50d) captures
+both static co-expression and dynamic perturbation response.
+
+**Result:** No improvement (concat 0.255 ≈ Gene2Vec alone 0.255). Descriptors
+carry largely redundant information at this scale.
+
+**Note:** Response_role was fitted from mean deltas (approximation) in this
+experiment.
+
+## 2026-11-13 — Milestone 17 (v9): NN retrieval + ensemble + per-cell response_role
+
+**Script:** `scripts/replogle_genelevel_v9.py`
+
+**Hypothesis:** Nearest-neighbor retrieval (find K most similar training genes
+by Gene2Vec cosine similarity, predict weighted mean of their deltas) is the
+key to approaching the oracle (0.592). NN + ridge ensemble may beat both.
+
+**Method:**
+- Same 5000 HVGs + all cells + online mean delta (identical to v7)
+- NN retrieval: K=1,2,3,5,10,20,50 from Gene2Vec cosine similarity
+- Ensemble: alpha * NN + (1-alpha) * ridge
+- response_role: per-cell deltas, capped at 50 cells/gene (avoids OOM)
+
+**v9 first attempt OOM-killed** — per-cell delta array (209k × 5000) exceeded 8GB.
+Fixed: cap at 50 cells/gene for response_role (1439 × 50 × 5000 × 4 ≈ 1.4GB).

@@ -1124,3 +1124,38 @@ Memory budget: ~350 MB peak (vs ~6 GB naive).
 
 **Script:** `scripts/replogle_genelevel_v7.py`
 **Next:** v8 — concatenate Gene2Vec (200d) + response_role (50d) as a combined descriptor.
+
+## Milestone 16: Concatenated Gene2Vec + response_role — no synergy found
+
+**Hypothesis tested:** Gene2Vec (static bulk co-expression, 200d) and response_role
+(learned perturbation-response PCA, 50d) might be complementary. Concatenating them
+(250d) should capture both perspectives and outperform either individually.
+
+**Method:** Same as v7 (5000 HVGs, all cells, online mean delta), but with a combined
+250d feature vector for each target gene.
+
+**Results:**
+
+| Method | Test Pearson mean | Test Pearson median |
+|---|---|---|
+| Global mean | 0.240 | 0.211 |
+| Gene2Vec + SVD k=100 | 0.255 | 0.228 |
+| Response_role + SVD k=100 | 0.251 | 0.228 |
+| **Concatenated + SVD k=100** | **0.255** | **0.228** |
+| *v7 best (response_role)* | *0.255* | *0.232* |
+
+**Key findings:**
+
+1. **No synergy**: concatenating Gene2Vec + response_role gives essentially the same
+   result as Gene2Vec alone (0.255 vs 0.255). The features carry redundant information.
+
+2. **Response_role slightly lower than v7** (0.251 vs 0.255): this is likely because
+   v8 response_role was fitted from mean deltas (1 observation per gene approximation),
+   which may lose information vs fitting from per-cell deltas. v9 uses actual per-cell
+   deltas for response_role.
+
+3. **Next direction**: Nearest-neighbor retrieval. For test genes, find K most similar
+   training genes by Gene2Vec cosine similarity and predict weighted mean of their deltas.
+   This directly implements the literature's oracle approach (at K=1).
+
+**Script:** `scripts/replogle_genelevel_v8.py`
