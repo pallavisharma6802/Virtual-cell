@@ -1563,3 +1563,54 @@ improve by ~0.027.
 
 **Next (v14):** Investigate HVG selection — try dispersion-normalized selection (scanpy-style)
 on all cells rather than variance of control cells only.
+
+---
+
+## 2026-11-13 — Milestone 21: HVG selection hypothesis tested (v14/v14b) — NEGATIVE
+
+**Script:** `scripts/replogle_genelevel_v14.py` / `scripts/replogle_genelevel_v14b.py`
+
+**Hypothesis tested:** Global mean = 0.240 vs literature 0.267 (gap = 0.027). Hypothesis: our
+control-cell variance-based HVG selection differs from the literature's scanpy seurat method
+(dispersion-normalized, based on mean-variance relationship across all cells).
+
+**Method:** Selected top 5000 HVGs by normalized Fano factor (variance / expected_variance_at_mean)
+computed from 15,000 sampled cells spanning all cell types (control + target). Bins expression by
+decile, normalizes dispersion within each bin, selects top 5000. Same MLP ensemble pipeline (v13).
+
+**Key diagnostic — global mean:**
+- Variance HVGs (control cells only, v7-v13): **0.2405**
+- Dispersion HVGs (all cells, scanpy seurat style, v14): **0.2377** ← slightly *worse*
+
+**Conclusion: HVG selection is NOT the source of the global mean gap to literature's 0.267.**
+Dispersion-normalized selection from all cells performs marginally worse (-0.003), not better.
+
+**Model results (dispersion HVGs, v14b):**
+| Model | Test Pearson (mean) |
+|---|---|
+| Global mean baseline | 0.2377 |
+| gene2vec + Ridge + SVD100 | 0.2622 |
+| gene2vec + MLP ensemble + SVD100 | **0.2706** |
+| concat + Ridge + SVD100 | 0.2623 |
+| concat + MLP ensemble + SVD100 | **0.2712** |
+
+These are essentially identical to v13's variance-HVG results (0.2714). The HVG method does not matter.
+
+**What we know about the gap to literature (running list of rejected hypotheses):**
+- ❌ HVG selection method (variance vs dispersion)
+- ❌ Number of HVGs (1500 → 5000: +0.014 improvement, but 5000 HVGs still gives 0.240 vs 0.267)
+- ❌ Normalization (raw vs log1p: +0.028 improvement, but already using log1p)
+- ❌ Cell sampling cap (80-cell → all cells: modest improvement)
+- ❓ Possibly: different evaluation split (literature may use different test genes)
+- ❓ Possibly: literature computes global mean from a different subset (all vs subset)
+- ❓ Possibly: literature 0.267 uses a different response variable definition
+
+**Current best model: concat+MLP ensemble+SVD100 = 0.2714** (v13, variance HVGs)
+Beats literature mean-training-delta baseline of 0.267 by +0.004.
+
+**Next directions to try:**
+1. DepMap essentiality scores (gene dependency context features)
+2. STRING protein interaction network features
+3. ESM2 protein sequence embeddings for target genes
+4. Wider MLP (hidden=1024, 3 layers) or larger SVD k
+5. Larger batch + cosine embedding loss instead of MSE on SVD codes
