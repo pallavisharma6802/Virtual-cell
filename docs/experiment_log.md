@@ -1530,3 +1530,36 @@ to the lookup.
 
 **Next:** v13 — MLP ensemble (multiple seeds + wider architecture) + stronger features
 (response_role concat for nonlinear combination, possibly STRING/DepMap features).
+
+## 2026-11-13 — Milestone 20 (v13): MLP ensemble + concat features
+
+**Script:** `scripts/replogle_genelevel_v13.py`
+
+**Method:** 5-seed MLP ensemble with Gene2Vec (200d) and concat (Gene2Vec+response_role, 250d)
+features. SVD k=50 and k=100 as target codes. Predict-then-retrieve from MLP stage-1.
+
+**Results:**
+
+| Model | Test Pearson (mean) | Notes |
+|-------|---------------------|-------|
+| gene2vec+MLP ensemble+SVD50 | 0.2686 | |
+| concat+MLP ensemble+SVD50 | 0.2699 | |
+| gene2vec+MLP ensemble+SVD100 | 0.2708 | |
+| **concat+MLP ensemble+SVD100** | **0.2714** | new best |
+| Predict-then-retrieve (all variants) | ≤ stage-1 | best blend α=0.0 — no gain |
+
+**Key findings:**
+1. 5-seed ensemble gains ~+0.001 over best single seed (0.2714 vs individual seeds ~0.268-0.270).
+2. Concat (Gene2Vec+response_role) marginally better than Gene2Vec alone (+0.0006).
+3. Predict-then-retrieve continues to give no improvement over stage-1 — alpha=0.0 is optimal.
+4. Progress: global_mean 0.240 → Gene2Vec+SVD 0.2623 → KernelRidge 0.2655 → MLP single 0.2693 →
+   MLP ensemble 0.2714.
+5. Gap to literature: 0.267 − 0.2714 = −0.004 (we now exceed literature by +0.004).
+6. Gap to oracle (0.4739): 0.4739 − 0.2714 = 0.2025.
+
+**Remaining question:** Global mean = 0.240 vs literature 0.267. This 0.027 gap suggests our HVG
+selection or normalization differs from the literature standard. If closed, all models would
+improve by ~0.027.
+
+**Next (v14):** Investigate HVG selection — try dispersion-normalized selection (scanpy-style)
+on all cells rather than variance of control cells only.
