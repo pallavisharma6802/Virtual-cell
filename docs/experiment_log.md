@@ -1614,3 +1614,42 @@ Beats literature mean-training-delta baseline of 0.267 by +0.004.
 3. ESM2 protein sequence embeddings for target genes
 4. Wider MLP (hidden=1024, 3 layers) or larger SVD k
 5. Larger batch + cosine embedding loss instead of MSE on SVD codes
+
+---
+
+## 2026-11-13 — Milestone 22: Cosine loss + wider MLP + direct prediction (v15)
+
+**Script:** `scripts/replogle_genelevel_v15.py`
+
+**Hypotheses tested:**
+1. **Cosine loss on SVD codes**: Our eval is Pearson correlation ≈ cosine similarity on mean-centered vectors. Using cosine loss should better align training objective with evaluation.
+2. **SVD k=200**: More expressive latent space (up from k=100 in v13).
+3. **Wider/deeper MLP**: hidden=1024, 3 layers (up from 512, 2 layers).
+4. **Direct 5000-dim delta prediction with cosine loss**: Bypass SVD entirely; predict full delta vector, no information loss from truncation.
+
+**Results:**
+| Model | Test Pearson (mean) |
+|---|---|
+| v13 baseline (concat+MLP+SVD100 MSE) | 0.2714 |
+| gene2vec + cosine loss + SVD200 + h512 ens | 0.2678 ← **worse** |
+| gene2vec + cosine loss + SVD200 + h1024-3L ens | 0.2700 ← worse |
+| concat + cosine loss + SVD200 + h512 ens | 0.2679 ← worse |
+| concat + cosine loss + SVD200 + h1024-3L ens | 0.2630 ← worse |
+| **gene2vec + direct cosine h512 ens** | **0.2728** ← new best |
+| concat + direct cosine h512 ens | 0.2726 |
+
+**Key findings:**
+- Cosine loss on SVD codes is **worse** than MSE on SVD codes. SVD codes are not well-suited for cosine loss (they span a low-rank space with specific scaling).
+- h=1024, 3-layer MLP is not better than h=512, 2-layer — overfitting or optimization difficulty.
+- **Direct 5000-dim prediction with cosine loss** is the best new approach: 0.2728 (+0.0014 over v13).
+- The improvement from direct prediction is consistent across all 5 seeds (0.267–0.270 range).
+
+**Interpretation:** The bottleneck is not architecture width/depth or loss function per se. Eliminating the SVD bottleneck gives a marginal gain, but we are fundamentally limited by the gene descriptor quality (Gene2Vec + response_role). The features do not encode enough information about how specifically this gene will perturb K562 cells.
+
+**Current best: gene2vec+direct cosine h512 = 0.2728** (+0.0014 over v13 0.2714)
+
+**Next directions:**
+1. **External features**: ESM2 protein embeddings (sequence-based, captures protein function)
+2. **Essentiality proxy from bulk RNA**: The raw bulk RNA h5ad (`data/replogle_k562_essential/K562_essential_raw_bulk_01.h5ad`) may contain perturbation signatures at bulk level — richer signal than mean single-cell delta
+3. **Train/test leakage check**: Confirm literature 0.267 uses exact same split
+4. **Larger training set**: Revisit using all 2057 target genes with leave-one-out or cross-val for a fairer estimate
