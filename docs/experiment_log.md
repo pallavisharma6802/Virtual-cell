@@ -1653,3 +1653,54 @@ Beats literature mean-training-delta baseline of 0.267 by +0.004.
 2. **Essentiality proxy from bulk RNA**: The raw bulk RNA h5ad (`data/replogle_k562_essential/K562_essential_raw_bulk_01.h5ad`) may contain perturbation signatures at bulk level — richer signal than mean single-cell delta
 3. **Train/test leakage check**: Confirm literature 0.267 uses exact same split
 4. **Larger training set**: Revisit using all 2057 target genes with leave-one-out or cross-val for a fairer estimate
+
+---
+
+## 2026-11-13 — Milestone 23: STRING PPI network-propagated embeddings (v16) — IN PROGRESS
+
+**Script:** `scripts/replogle_genelevel_v16.py`
+
+**Hypothesis:** Genes that interact in the protein-protein interaction (PPI) network
+tend to have correlated perturbation effects. STRING PPI scores encode K562 biology
+indirectly through known molecular interactions.
+
+**Network propagation:** For each gene g, compute weighted mean of Gene2Vec(neighbor)
+embeddings, weighted by STRING combined_score/1000. This creates a 200d "neighborhood
+embedding" that reflects what interacting proteins do.
+
+**Setup:**
+- STRING v12.0 human PPI: downloaded to `data/string/`
+- 1,858,944 edges at combined_score ≥ 400; coverage 97.4% of target genes
+- Feature sets: `g2v`(200), `g2v_net`(400), `g2v_rr`(250), `g2v_net_rr`(450)
+- All use direct cosine MLP (best from v15), 5-seed ensemble, 600 epochs
+
+**Status:** Running on EC2 (PID 4668), started ~13:08 UTC, expected ~14:25 UTC.
+**Results:** Pending.
+
+---
+
+## 2026-11-13 — Milestone 24: Contrastive metric learning + k-NN retrieval (v17)
+
+**Script:** `scripts/replogle_genelevel_v17.py` (written, not yet run)
+
+**Motivation:** The oracle achieves 0.4739 by RETRIEVING training genes using TRUE
+test-gene deltas. Our direct-regression models peak at 0.2728. The gap (0.2011) may
+be partially closed by learning a **metric** that maps gene features to an embedding
+space where similar-effect genes cluster together, then using k-NN retrieval.
+
+**Approach (contrastive metric learning):**
+1. For all pairs of training genes (gi, gj), compute target similarity:
+   s_ij = Pearson(delta_gi, delta_gj)
+2. Train a Siamese MLP: gene_features → L2-normalized embedding (64d),
+   loss = MSE(cosine_sim(e_i, e_j), s_ij) over randomly sampled pairs
+3. At test time: embed test gene, find top-k training genes by cosine similarity,
+   return weighted mean of their delta vectors
+
+**Experiments planned:**
+- A: Direct cosine MLP on g2v+net+rr (reproduce v15/v16 best as baseline)
+- B: Contrastive + k=5 retrieval
+- C: Contrastive + k=10 retrieval
+- D: Raw feature cosine k-NN (no metric learning; ablation)
+
+**Expected run time:** ~2–3 hours (20 MLP training runs + pairwise Pearson matrix)
+**Status:** Pending — will run after v16 completes.
