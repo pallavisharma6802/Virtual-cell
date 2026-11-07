@@ -1732,3 +1732,87 @@ space where similar-effect genes cluster together, then using k-NN retrieval.
 
 **Expected run time:** ~2–3 hours (20 MLP training runs + pairwise Pearson matrix)
 **Status:** Pending — will run after v16 completes.
+
+---
+
+## 2026-11-13 — Milestone 25: ESM2 protein sequence embeddings (v18)
+
+**Hypothesis:** Gene2Vec encodes co-expression patterns; ESM2 encodes protein sequence
+structure. These are orthogonal sources of information — combining them may give a
+richer gene representation that explains more of the perturbation effect variance.
+
+**What was built (`scripts/replogle_genelevel_v18.py`):**
+- Queries UniProt REST API for protein sequences of all 2,057 target genes
+- Runs `facebook/esm2_t6_8M_UR50D` (8M params, 320d mean-pool embeddings) on CPU
+- Caches sequences to `data/esm2/uniprot_sequences.json`, embeddings to `data/esm2/esm2_embeddings.npz`
+- Tests 4 feature combinations:
+  - `g2v_net` (400d): v16 baseline — g2v + STRING-propagated g2v
+  - `esm2` (320d): protein sequence only
+  - `esm2_net` (520d): ESM2 + STRING-propagated ESM2
+  - `esm2_g2v_net` (720d): ESM2 + g2v + STRING-propagated g2v
+
+**Expected result:** ESM2 alone may underperform g2v_net (sequence ≠ expression context),
+but fusion (esm2_g2v_net) may improve over 0.3103 by adding orthogonal signal.
+**Status:** Running on EC2 (PID 3637, launched 2026-11-13)
+
+---
+
+## 2026-11-13 — Milestone 26: Multi-hop STRING GNN (v19)
+
+**Hypothesis:** 1-hop fixed aggregation (v16) may miss distant regulatory relationships.
+Extending to 2 hops with *learned* aggregation weights (GraphSAGE-style) may capture
+more complex pathway structure.
+
+**What was built (`scripts/replogle_genelevel_v19.py`):**
+- **Fixed 2-hop (ablation):** Extends v16 to 2 hops; concatenates [g2v, hop1_agg, hop2_agg] → 600d
+- **Learned 2-layer GraphSAGE:**
+  - Layer 1: `ReLU(W1·concat[g2v(g), mean_pool(g2v(nbr))])` → 256d
+  - Layer 2: `ReLU(W2·concat[h1(g), mean_pool(h1(nbr))])` → 128d
+  - MLP decoder: 128d → 5000d delta
+  - Learned aggregation weights end-to-end
+
+**Expected result:** Fixed 2-hop may show diminishing returns; learned GNN may push
+past 0.3103 by learning which neighbors matter.
+**Status:** Queued after v18 (sequential on EC2)
+
+---
+
+## 2026-11-13 — Milestone 27: Episodic meta-learning + kNN retrieval (v20)
+
+**Hypothesis:** Standard supervised training forces the model to find one global mapping.
+Episodic (prototypical network) training teaches the model to predict from a support set
+of related genes — better for cold-start generalization to new test genes.
+
+**What was built (`scripts/replogle_genelevel_v20.py`):**
+- **ProtoNet (8,000 episodes):** Siamese MLP with soft-attention over support genes
+  - Each episode: 10 support + 15 query genes
+  - Embedding: `EmbedNet(400d → 128d, L2-normalized)`
+  - Decoder: `concat[context_delta, query_emb] → delta`
+  - At test time: all training genes are the support set
+- **Soft kNN baselines:** k=1, 5, 10 cosine retrieval (no learning)
+
+**Expected result:** kNN retrieval may underperform direct prediction (v17 showed this).
+ProtoNet may add a small improvement by learning the retrieval.
+**Status:** Queued after v19
+
+---
+
+## 2026-11-13 — Milestone 28: Bulk data pre-training (v21)
+
+**Hypothesis:** The single-cell cache uses ~2,057 targets. The bulk Replogle file
+(`K562_essential_raw_bulk_01.h5ad`, 76 MB, 2,285 perturbations × 8,563 genes) has
+never been used. Pre-training an encoder on bulk signatures (more genes, pre-aggregated,
+cleaner signal) before fine-tuning on mean-delta prediction may bootstrap better features.
+
+**What was built (`scripts/replogle_genelevel_v21.py`):**
+- Loads bulk K562 file → computes delta signatures (expression − control mean) for each gene
+- Pre-trains encoder: contrastive loss blending STRING score + bulk cosine similarity
+  - Target sim(g1, g2) = 0.5 × STRING_score + 0.5 × bulk_cosine
+  - 200 epochs, batch_size=256 pairs
+- Fine-tunes: frozen encoder for 100 epochs, then full unfreeze for 400 more
+- Compares: (A) from-scratch MLP vs (B) pre-trained encoder fine-tuned
+
+**Expected result:** Contrastive bulk pre-training may add +0.01–0.03 over direct MLP
+by providing a better initialization.
+**Status:** Queued after v20
+
