@@ -1,0 +1,69 @@
+{
+  "dataset": "Replogle et al. 2022 K562 essential RAW SINGLE-CELL",
+  "note": "v16: STRING PPI network-propagated Gene2Vec embeddings",
+  "string_min_score": 400,
+  "n_hvg": 5000,
+  "n_distinct_targets": 2057,
+  "n_train_targets": 1439,
+  "n_val_targets": 309,
+  "n_test_targets": 309,
+  "elapsed_seconds": 3949.9940247535706,
+  "literature_reference_points": {
+    "mean_training_delta_baseline": 0.267,
+    "oracle_nn_retrieval": 0.592,
+    "our_oracle_nn_k5_v12": 0.4739
+  },
+  "baselines": {
+    "global_mean": {
+      "test_pearson_mean": 0.2404704479889456
+    },
+    "v13_best": 0.2714,
+    "v15_best": 0.2728
+  },
+  "experiments": {
+    "g2v_direct_cosine_h512": {
+      "test_pearson_mean": 0.272835114390893,
+      "test_pearson_median": 0.22802166640758514,
+      "per_seed": [
+        0.2672141935432815,
+        0.26885660983929877,
+        0.2676481589370537,
+        0.26924155962643664,
+        0.2685744145016328
+      ]
+    },
+    "g2v_net_direct_cosine_h512": {
+      "test_pearson_mean": 0.31027914257343364,
+      "test_pearson_median": 0.2790575921535492,
+      "per_seed": [
+        0.30139651902198555,
+        0.30241587852100726,
+        0.29981418458999565,
+        0.3052496692694311,
+        0.3034819068847161
+      ]
+    },
+    "g2v_rr_direct_cosine_h512": {
+      "test_pearson_mean": 0.2725947496264986,
+      "test_pearson_median": 0.2342776358127594,
+      "per_seed": [
+        0.26677085025462816,
+        0.2675170916012823,
+        0.2692476002745101,
+        0.26992718577211644,
+        0.2684286995632664
+      ]
+    },
+    "g2v_net_rr_direct_cosine_h512": {
+      "test_pearson_mean": 0.30897890505287495,
+      "test_pearson_median": 0.2762754261493683,
+      "per_seed": [
+        0.3067540301616201,
+        0.29986255029135406,
+        0.30059035599584355,
+        0.2979091926007667,
+        0.3031882124027677
+      ]
+    }
+  }
+}

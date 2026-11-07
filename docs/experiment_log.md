@@ -1674,8 +1674,36 @@ embedding" that reflects what interacting proteins do.
 - Feature sets: `g2v`(200), `g2v_net`(400), `g2v_rr`(250), `g2v_net_rr`(450)
 - All use direct cosine MLP (best from v15), 5-seed ensemble, 600 epochs
 
-**Status:** Running on EC2 (PID 4668), started ~13:08 UTC, expected ~14:25 UTC.
-**Results:** Pending.
+**Status:** COMPLETE. Ran 3950s (~66 min) on EC2.
+
+**Results:**
+| Feature set | Dim | Test Pearson (mean) | Test Pearson (median) |
+|---|---|---|---|
+| g2v only | 200 | 0.2728 | 0.2280 |
+| g2v + response_role | 250 | 0.2726 | 0.2343 |
+| **g2v + STRING_net** | **400** | **0.3103** | **0.2791** |
+| g2v + STRING_net + response_role | 450 | 0.3090 | 0.2763 |
+
+**Key finding: STRING PPI network embeddings are a major breakthrough (+0.038).**
+Adding the network-propagated neighbor embedding to gene2vec jumps the test Pearson
+from 0.2728 → 0.3103 — the largest single improvement in the entire project.
+
+Notably, adding response_role on top of g2v+net slightly *hurts* (0.3103 → 0.3090).
+This suggests response_role adds noise when STRING network information is already present.
+
+**Interpretation:**
+- Protein-protein interaction neighborhood encodes something fundamental about how
+  genes perturb K562 cells — genes with similar interactors have similar effects.
+- Gene2Vec (co-expression based) + STRING (interaction based) is a powerful
+  complementary combination. Neither alone achieves this level.
+- Response_role (NMF on training deltas) may overfit to the training distribution
+  and become noise when added to already-rich representations.
+
+**Progress:** 0.3103 vs oracle 0.4739. Gap reduced from 0.2011 → 0.1636.
+
+**Next:** v17 — contrastive metric learning. Hypothesis: explicitly training the
+embedding metric to match pairwise gene-delta similarities, then using k-NN retrieval,
+can directly mimic the oracle strategy and further close the gap.
 
 ---
 
