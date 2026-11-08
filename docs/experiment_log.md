@@ -1753,7 +1753,17 @@ richer gene representation that explains more of the perturbation effect varianc
 
 **Expected result:** ESM2 alone may underperform g2v_net (sequence ≠ expression context),
 but fusion (esm2_g2v_net) may improve over 0.3103 by adding orthogonal signal.
-**Status:** Running on EC2 (PID 3637, launched 2026-11-13)
+**Status:** COMPLETE
+
+**Results:**
+| Feature | Test Pearson |
+|---------|-------------|
+| g2v_net (baseline) | 0.3103 |
+| esm2 alone | 0.2911 |
+| **esm2_net** | **0.3234 ← NEW BEST** |
+| esm2_g2v_net | 0.3160 |
+
+**Finding:** ESM2 + STRING propagation (520d) beats Gene2Vec + STRING (+0.013). Protein sequence alone is weaker than co-expression context, but ESM2 network neighbors capture complementary pathway structure. The 720d fusion (esm2_g2v_net) underperforms esm2_net — adding Gene2Vec to ESM2_net adds noise, not signal.
 
 ---
 
