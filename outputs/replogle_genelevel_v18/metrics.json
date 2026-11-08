@@ -1,0 +1,60 @@
+{
+  "note": "v18: ESM2 protein sequence embeddings + STRING",
+  "esm2_model": "facebook/esm2_t6_8M_UR50D (8M params, 320d)",
+  "esm2_coverage_fraction": 0.9965969859017987,
+  "n_train_targets": 1439,
+  "n_val_targets": 309,
+  "n_test_targets": 309,
+  "elapsed_seconds": 5081.7655482292175,
+  "reference": {
+    "global_mean": 0.2404704479889456,
+    "v16_best_g2v_net": 0.3103,
+    "oracle": 0.4739
+  },
+  "experiments": {
+    "g2v_net_direct_cosine_h512": {
+      "test_pearson_mean": 0.31027914257343364,
+      "test_pearson_median": 0.2790575921535492,
+      "per_seed": [
+        0.30139651902198555,
+        0.30241587852100726,
+        0.29981418458999565,
+        0.3052496692694311,
+        0.3034819068847161
+      ]
+    },
+    "esm2_direct_cosine_h512": {
+      "test_pearson_mean": 0.29112120058378477,
+      "test_pearson_median": 0.2505703866481781,
+      "per_seed": [
+        0.28749534231393964,
+        0.2859796416907327,
+        0.28906461015722723,
+        0.28576588451871376,
+        0.2857546119177529
+      ]
+    },
+    "esm2_net_direct_cosine_h512": {
+      "test_pearson_mean": 0.32338662575617655,
+      "test_pearson_median": 0.2992895543575287,
+      "per_seed": [
+        0.3096507783833376,
+        0.3116881515925696,
+        0.3197291697445928,
+        0.31348549786496993,
+        0.31846716964574423
+      ]
+    },
+    "esm2_g2v_net_direct_cosine_h512": {
+      "test_pearson_mean": 0.31604962704686634,
+      "test_pearson_median": 0.27324238419532776,
+      "per_seed": [
+        0.29691630762302496,
+        0.3087090087465303,
+        0.31035929039862115,
+        0.30994618184022654,
+        0.2987224531538626
+      ]
+    }
+  }
+}
