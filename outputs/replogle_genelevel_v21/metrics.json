@@ -1,0 +1,37 @@
+{
+  "note": "v21: Bulk data pre-training (LINCS-style transfer)",
+  "n_train": 1439,
+  "n_val": 309,
+  "n_test": 309,
+  "n_bulk_signatures": 2025,
+  "elapsed_seconds": 2306.241574048996,
+  "reference": {
+    "global_mean": 0.2404704459763545,
+    "v16_best": 0.3103,
+    "oracle": 0.4739
+  },
+  "experiments": {
+    "direct_from_scratch": {
+      "test_pearson_mean": 0.3080910060790305,
+      "test_pearson_median": 0.2719188928604126,
+      "per_seed": [
+        0.3016528785912528,
+        0.3034310608435498,
+        0.30143541106998484,
+        0.29993050055831527,
+        0.29998341055700334
+      ]
+    },
+    "pretrained_bulk": {
+      "test_pearson_mean": 0.32922389369170124,
+      "test_pearson_median": 0.2838989496231079,
+      "per_seed": [
+        0.3222443462628928,
+        0.32786034759620813,
+        0.32486017893368385,
+        0.3174733884093272,
+        0.323232328804259
+      ]
+    }
+  }
+}
