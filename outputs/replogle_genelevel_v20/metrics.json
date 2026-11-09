@@ -1,0 +1,38 @@
+{
+  "note": "v20: Meta-learning \u2014 ProtoNet + kNN retrieval",
+  "n_train": 1439,
+  "n_val": 309,
+  "n_test": 309,
+  "elapsed_seconds": 2603.6725232601166,
+  "reference": {
+    "global_mean": 0.2404704459763545,
+    "v16_best": 0.3103,
+    "oracle": 0.4739
+  },
+  "experiments": {
+    "direct_mlp_g2v_net": {
+      "test_pearson_mean": 0.3073731638426353,
+      "test_pearson_median": 0.2746454179286957
+    },
+    "protonet_episodic": {
+      "test_pearson_mean": 0.3163430986745627,
+      "test_pearson_median": 0.2881511449813843,
+      "per_seed": [
+        0.3086826520822008,
+        0.30898493124114823,
+        0.3079296691500669,
+        0.30280856623731195,
+        0.3081103629081489
+      ]
+    },
+    "knn_cosine_k1": {
+      "test_pearson_mean": 0.12022634241429989
+    },
+    "knn_cosine_k5": {
+      "test_pearson_mean": 0.18987017910277926
+    },
+    "knn_cosine_k10": {
+      "test_pearson_mean": 0.22027824206494737
+    }
+  }
+}
