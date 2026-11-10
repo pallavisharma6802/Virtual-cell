@@ -1826,3 +1826,61 @@ cleaner signal) before fine-tuning on mean-delta prediction may bootstrap better
 by providing a better initialization.
 **Status:** Queued after v20
 
+
+---
+
+## 2026-11-13 — Milestone 26 final: Multi-hop STRING GNN (v19) — COMPLETE
+
+**Results:**
+| Experiment | Test Pearson |
+|-----------|-------------|
+| Fixed 2-hop (600d) | **0.3183** (+0.008 over v16) |
+| Learned 2-layer GraphSAGE | 0.2923 ← REJECTED |
+
+**Finding:** With only 1,439 training genes, learned GNN aggregation overfits badly. Fixed/hand-engineered propagation consistently wins. Same bottleneck as v17 (contrastive learning). Data size is the fundamental limit on learned architectures.
+
+---
+
+## 2026-11-13 — Milestone 27 final: Episodic meta-learning (v20) — COMPLETE
+
+**Results:**
+| Experiment | Test Pearson |
+|-----------|-------------|
+| Direct MLP baseline | 0.3074 |
+| ProtoNet (8K episodes) | 0.3163 (+0.009 over baseline) |
+| kNN k=1 / k=5 / k=10 | 0.12 / 0.19 / 0.22 |
+
+**Finding:** Episodic meta-learning adds a small but real +0.009 over direct MLP. kNN retrieval is poor (feature quality bottleneck confirmed again). ProtoNet's gain is real but doesn't beat esm2_net — features remain the dominant factor.
+
+---
+
+## 2026-11-13 — Milestone 28 final: Bulk data pre-training (v21) — NEW BEST 0.3292
+
+**Results:**
+| Experiment | Test Pearson |
+|-----------|-------------|
+| Direct from-scratch | 0.3081 |
+| **Bulk pre-trained** | **0.3292 ← NEW BEST** |
+
+**Finding:** Pre-training on bulk K562 perturbation signatures (2,025 genes, pre-aggregated, contrastive loss) then fine-tuning improves by +0.021 over direct MLP and +0.006 over previous best (esm2_net). Transfer learning from bulk data is effective even when the downstream task uses single-cell mean-deltas. The bulk file (76 MB local) is an untapped resource that meaningfully helps.
+
+---
+
+## 2026-11-13 — Full scoreboard after v18–v21
+
+| Version | Test Pearson | Method | Status |
+|---------|-------------|--------|--------|
+| Global mean | 0.2405 | Baseline | — |
+| Literature (GEARS) | 0.267 | Reference | — |
+| v16 g2v_net | 0.3103 | Gene2Vec + STRING 1-hop | Previous best |
+| v19 fixed 2-hop | 0.3183 | Gene2Vec + STRING 2-hop | +0.008 |
+| v20 ProtoNet | 0.3163 | Episodic meta-learning | +0.006 |
+| v18 esm2_net | 0.3234 | ESM2 + STRING 1-hop | +0.013 |
+| **v21 bulk pre-train** | **0.3292** | **Bulk pre-training + g2v_net** | **+0.019** |
+| Oracle NN K=5 | 0.4739 | Upper bound | — |
+
+**Next logical steps:**
+1. **Combine best features:** esm2_net (0.3234) + bulk pre-training → could push toward 0.34+
+2. **Deeper bulk pre-training:** More epochs, larger batch, stronger contrastive signal
+3. **More bulk data:** Replogle genome-wide K562 (~50 GB) has ~10,000 genes vs 2,025
+
