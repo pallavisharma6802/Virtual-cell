@@ -1,0 +1,47 @@
+{
+  "note": "v23: SimCLR NT-Xent pre-training + deeper encoder",
+  "n_train": 1439,
+  "n_val": 309,
+  "n_test": 309,
+  "elapsed_seconds": 5652.85891699791,
+  "reference": {
+    "global_mean": 0.2404704459763545,
+    "v22_best": 0.3432,
+    "oracle": 0.4739
+  },
+  "experiments": {
+    "combo_mse_pretrain_deep": {
+      "test_pearson_mean": 0.3526194793930199,
+      "test_pearson_median": 0.30262136459350586,
+      "per_seed": [
+        0.33652867155577565,
+        0.3414965272168282,
+        0.34342807774957756,
+        0.34171710874430206,
+        0.3438052672250076
+      ]
+    },
+    "combo_simclr_cosine": {
+      "test_pearson_mean": 0.2945219044742012,
+      "test_pearson_median": 0.25435665249824524,
+      "per_seed": [
+        0.27719170425694156,
+        0.2816225074603758,
+        0.280906548923891,
+        0.2795757820930906,
+        0.26264964189707424
+      ]
+    },
+    "combo_simclr_combined": {
+      "test_pearson_mean": 0.3135942123968962,
+      "test_pearson_median": 0.2656521201133728,
+      "per_seed": [
+        0.30200718756683,
+        0.30318699851986264,
+        0.30272829980728094,
+        0.29980316751826447,
+        0.29417858856054274
+      ]
+    }
+  }
+}

@@ -1924,3 +1924,46 @@ bulk pre-train alone +0.019 (v21), combined +0.033 over v16 baseline.
 
 Gap to oracle: 0.1307 remaining (was 0.1636 at v16 start of this session).
 
+
+
+---
+
+## 2026-11-13 — Milestone 30: Deeper encoder + SimCLR NT-Xent pre-training (v23)
+
+**Hypothesis:** Two improvements to the v22 combo (1040d + bulk pre-train):
+1. Deeper encoder (4-layer: 1040→1024→1024→512→256 vs v22's 2-layer 512→512→256) may extract richer representations from the 1040d features.
+2. SimCLR NT-Xent pre-training (self-supervised, using STRING-neighbor augmented views as positives) may provide better pre-training signal than MSE on pairwise cosine similarity.
+
+**What was built (`scripts/replogle_genelevel_v23.py`):**
+- DeepEncoder: 4-layer MLP (1040→1024→1024→512→256 with LayerNorm+GELU+Dropout)
+- NT-Xent loss: SimCLR contrastive with temperature τ=0.1, positive pairs = (original, STRING-neighbor-augmented) features
+- 3 experiments: (A) deeper encoder + MSE pre-train; (B) deeper encoder + SimCLR + cosine loss; (C) deeper encoder + SimCLR + combined cosine+MSE loss
+- 500 pre-train epochs, 600 fine-tune epochs, 5-seed ensemble
+
+**Results:**
+| Experiment | Test Pearson | vs v22 |
+|-----------|-------------|--------|
+| **A: combo + MSE pre-train + deeper encoder** | **0.3526 ← NEW BEST** | **+0.009** |
+| C: combo + SimCLR + combined loss | 0.3136 | -0.030 |
+| B: combo + SimCLR + cosine loss | 0.2945 | -0.049 |
+
+**Finding:** The deeper encoder alone (+0.009) is a genuine improvement — the 4-layer 1040→256 architecture extracts more from the 1040d combo features than the shallower v22 encoder. SimCLR NT-Xent pre-training is a **clear failure** (-0.049 vs v22): the STRING-neighbor augmentation does not create distinct enough positive pairs to learn useful representations, and the NT-Xent loss is likely too aggressive for this small-dataset gene-expression domain. Combined cosine+MSE fine-tuning loss (Exp C) partially recovers vs pure SimCLR but still underperforms MSE pre-training significantly. **Key takeaway:** architecture depth helps; NT-Xent-style contrastive learning does not work here.
+
+**Updated scoreboard:**
+| Version | Pearson | Method |
+|---------|---------|--------|
+| Global mean | 0.2405 | — |
+| Literature GEARS | 0.267 | Reference |
+| v16 | 0.3103 | Gene2Vec + STRING |
+| v18 esm2_net | 0.3234 | ESM2 + STRING |
+| v21 bulk pre-train | 0.3292 | Bulk transfer |
+| v22 combo | 0.3432 | ESM2+g2v+STRING+bulk (2-layer) |
+| **v23 combo+deep** | **0.3526** | **ESM2+g2v+STRING+bulk (4-layer)** |
+| Oracle NN K=5 | 0.4739 | Upper bound |
+
+Gap to oracle: 0.1213 remaining (was 0.1307 after v22, 0.1636 at v16).
+
+**Next logical steps:**
+1. **More pre-train epochs / larger batch** — deeper encoder may benefit from longer bulk pre-training
+2. **Wider intermediate layers** — try 1040→2048→1024→512→256
+3. **Replogle genome-wide K562** (~50 GB, ~10,000 genes) — more bulk pre-training data is likely the highest-leverage remaining lever
