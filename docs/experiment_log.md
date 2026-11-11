@@ -1884,3 +1884,43 @@ by providing a better initialization.
 2. **Deeper bulk pre-training:** More epochs, larger batch, stronger contrastive signal
 3. **More bulk data:** Replogle genome-wide K562 (~50 GB) has ~10,000 genes vs 2,025
 
+
+---
+
+## 2026-11-13 — Milestone 29: ESM2+g2v+STRING+bulk pre-training combination (v22) — NEW BEST 0.3432
+
+**Hypothesis:** The two strongest improvements (ESM2+STRING from v18, bulk pre-training from v21)
+may be additive if they encode orthogonal information.
+
+**What was built (`scripts/replogle_genelevel_v22.py`):**
+- Uses cached ESM2 embeddings from v18 (no re-fetching)
+- Builds both g2v_net (400d) and esm2_net (640d) feature sets from STRING
+- Combo features: esm2(320) + net_esm2(320) + g2v(200) + net_g2v(200) = 1040d
+- Pre-trains on bulk signatures (300 epochs, batch 512, blended contrastive loss)
+- Fine-tunes with frozen encoder warmup (100 epochs) then full unfreeze (500 epochs)
+
+**Results:**
+| Experiment | Test Pearson |
+|-----------|-------------|
+| esm2_net direct | 0.3209 |
+| esm2_net + bulk pre-train | 0.3325 |
+| g2v_net + bulk pre-train | 0.3358 |
+| **combo (1040d) + bulk pre-train** | **0.3432 ← NEW BEST** |
+
+**Finding:** ESM2 and Gene2Vec carry orthogonal information — combining them (1040d) is additive,
+not redundant. Bulk pre-training amplifies both. The gains compound: ESM2 alone +0.013 (v18),
+bulk pre-train alone +0.019 (v21), combined +0.033 over v16 baseline.
+
+**Updated scoreboard:**
+| Version | Pearson | Method |
+|---------|---------|--------|
+| Global mean | 0.2405 | — |
+| Literature GEARS | 0.267 | Reference |
+| v16 | 0.3103 | Gene2Vec + STRING |
+| v18 esm2_net | 0.3234 | ESM2 + STRING |
+| v21 bulk pre-train | 0.3292 | Bulk transfer |
+| **v22 combo** | **0.3432** | **ESM2+g2v+STRING+bulk** |
+| Oracle NN K=5 | 0.4739 | Upper bound |
+
+Gap to oracle: 0.1307 remaining (was 0.1636 at v16 start of this session).
+
