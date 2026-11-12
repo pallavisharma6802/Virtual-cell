@@ -1,0 +1,37 @@
+{
+  "note": "v24: Wider encoder (2048 dim) + longer bulk pre-training (800 epochs, warm restarts)",
+  "n_train": 1439,
+  "n_val": 309,
+  "n_test": 309,
+  "elapsed_seconds": 4730.804147005081,
+  "reference": {
+    "global_mean": 0.2404704459763545,
+    "v23_best": 0.3526,
+    "v22_best": 0.3432,
+    "oracle": 0.4739
+  },
+  "experiments": {
+    "wide_no_pretrain": {
+      "test_pearson_mean": 0.31821467326938935,
+      "test_pearson_median": 0.27877184748649597,
+      "per_seed": [
+        0.3102187559790917,
+        0.3150302224197654,
+        0.3135313097979801,
+        0.31132559252820075,
+        0.31443767560420643
+      ]
+    },
+    "wide_pretrained": {
+      "test_pearson_mean": 0.353798765340077,
+      "test_pearson_median": 0.3126373887062073,
+      "per_seed": [
+        0.34630385981827466,
+        0.35049583886533037,
+        0.3440901725986237,
+        0.3473703858840451,
+        0.3481369665661875
+      ]
+    }
+  }
+}

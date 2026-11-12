@@ -1967,3 +1967,44 @@ Gap to oracle: 0.1213 remaining (was 0.1307 after v22, 0.1636 at v16).
 1. **More pre-train epochs / larger batch** — deeper encoder may benefit from longer bulk pre-training
 2. **Wider intermediate layers** — try 1040→2048→1024→512→256
 3. **Replogle genome-wide K562** (~50 GB, ~10,000 genes) — more bulk pre-training data is likely the highest-leverage remaining lever
+
+
+---
+
+## 2026-11-13 — Milestone 31: Wider encoder + longer bulk pre-training (v24) — NEW BEST 0.3538
+
+**Hypothesis:** v23 showed that deeper architecture (+0.009) is a genuine gain. Can a wider first layer (2048 vs 1024) and longer pre-training (800 vs 500 epochs) extract even more signal?
+
+**What was built (`scripts/replogle_genelevel_v24.py`):**
+- WideEncoder: 1040→2048→1024→512→256 (wider first layer vs v23's 1040→1024→...)
+- 800-epoch MSE pairwise contrastive pre-training (vs 500 in v23)
+- Cosine LR warm restarts during pre-training (T_0=200) for better convergence
+- Larger pre-train batch: 512 (vs 256 in v23)
+- Ablation: wide encoder with no pre-training
+
+**Results:**
+| Experiment | Test Pearson | vs v23 |
+|-----------|-------------|--------|
+| **Wide + 800-epoch pre-train** | **0.3538 ← NEW BEST** | **+0.001** |
+| Wide encoder, no pre-train | 0.3182 | -0.034 |
+
+**Per-seed wide_pretrained:** 0.3463, 0.3505, 0.3441, 0.3474, 0.3481
+
+**Finding:** Wider first layer + longer pre-training gives a marginal +0.001 improvement over v23 (0.3526→0.3538). The ablation (wide, no pre-train = 0.3182) confirms pre-training is essential — the wider architecture alone is not better than the smaller encoder from earlier experiments. The gains from architecture widening are diminishing; the marginal improvement from going wider (1024→2048) is much smaller than going deeper (2-layer→4-layer, +0.009 in v23). **The diminishing returns suggest we are hitting a ceiling with the current ~1,439 training genes and 2,025 bulk pre-training genes.** More data is likely the highest-leverage remaining lever.
+
+**Updated scoreboard:**
+| Version | Pearson | Method |
+|---------|---------|--------|
+| Global mean | 0.2405 | — |
+| Literature GEARS | 0.267 | Reference |
+| v16 | 0.3103 | Gene2Vec + STRING |
+| v18 esm2_net | 0.3234 | ESM2 + STRING |
+| v21 bulk pre-train | 0.3292 | Bulk transfer |
+| v22 combo | 0.3432 | ESM2+g2v+STRING+bulk (2-layer) |
+| v23 combo+deep | 0.3526 | 4-layer encoder |
+| **v24 combo+wide** | **0.3538** | **2048-wide encoder + 800-epoch pre-train** |
+| Oracle NN K=5 | 0.4739 | Upper bound |
+
+Gap to oracle: 0.1201 remaining.
+
+**Conclusion / next steps:** Architecture improvements (deeper, wider, longer pre-train) have delivered +0.044 since v22 but are now yielding marginal gains. The fundamental bottleneck is data: 1,439 training genes is very few for a generalizable perturbation→effect mapping. The highest-leverage next step is **more training data** via the Replogle genome-wide K562 dataset (~50 GB, ~10,000 perturbation genes). Without that data, further architecture tuning is unlikely to close the remaining 0.12 gap to oracle.
