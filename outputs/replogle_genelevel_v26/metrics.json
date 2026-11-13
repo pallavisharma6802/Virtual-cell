@@ -1,0 +1,37 @@
+{
+  "note": "v26: 2-hop STRING propagation on ESM2+g2v (1560d vs 1040d)",
+  "n_train": 1439,
+  "n_val": 309,
+  "n_test": 309,
+  "elapsed_seconds": 6500.493153333664,
+  "reference": {
+    "global_mean": 0.2404704459763545,
+    "v25_best": 0.3557,
+    "v24_best": 0.3538,
+    "oracle": 0.4739
+  },
+  "experiments": {
+    "combo1_pretrained": {
+      "test_pearson_mean": 0.35568182137067667,
+      "test_pearson_median": 0.3100093603134155,
+      "per_seed": [
+        0.3514198013777663,
+        0.3526054034717863,
+        0.3491989681022513,
+        0.34562566079738816,
+        0.3482352985569478
+      ]
+    },
+    "combo2_pretrained": {
+      "test_pearson_mean": 0.34863817320102797,
+      "test_pearson_median": 0.2999897301197052,
+      "per_seed": [
+        0.3457707778805367,
+        0.3434528403204917,
+        0.3436811286948537,
+        0.34673991595721926,
+        0.34247479780415496
+      ]
+    }
+  }
+}

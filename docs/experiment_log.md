@@ -2045,3 +2045,56 @@ Gap to oracle: 0.1201 remaining.
 | Oracle NN K=5 | 0.4739 | Upper bound |
 
 Gap to oracle: 0.1182 remaining.
+
+
+---
+
+## 2026-11-13 — Milestone 33: 2-hop STRING propagation (v26) — REJECTED
+
+**Hypothesis:** v19 showed 2-hop > 1-hop for g2v alone (+0.008). Extending 2-hop to both ESM2+g2v features (1560d) might give a similar gain on top of the best combo.
+
+**What was built (`scripts/replogle_genelevel_v26.py`):**
+- 2-hop STRING propagation: esm2(320) + hop1_esm2(320) + hop2_esm2(320) + g2v(200) + hop1_g2v(200) + hop2_g2v(200) = 1560d
+- WideEncoder adapted to 1560d input (1560→2048→1024→512→256)
+- Same pre-training/fine-tuning as v25 Exp A (best setup)
+- Comparison: 1-hop replication (1040d) vs 2-hop (1560d)
+
+**Results:**
+| Experiment | Test Pearson | vs v25 |
+|-----------|-------------|--------|
+| 1-hop replication (1040d) | 0.3557 | 0.000 |
+| **2-hop combo (1560d)** | **0.3486** | **-0.007 REJECTED** |
+
+**Finding:** 2-hop STRING propagation *hurts* (-0.007). Contrary to v19's result for g2v alone, adding a second propagation hop on the already-1-hop-enriched combo features causes over-smoothing. The 1-hop already captures the most predictive PPI signal; going to 2-hop makes all genes look more like their 2nd-degree neighbors, diluting the specific local interaction context. **Optimal propagation depth = 1-hop** for this feature set.
+
+The v19 result (2-hop > 1-hop for raw g2v) worked because raw g2v had no network context yet. The combo features already have 1-hop context baked in, so the marginal value of an additional hop is negative.
+
+---
+
+## 2026-11-13 — Architecture search summary and ceiling analysis
+
+After v22–v26, we have exhausted the current set of architectural improvements. Summary:
+
+| Change | v → v | Δ Pearson | Status |
+|--------|-------|-----------|--------|
+| Deeper encoder (2→4 layer) | v22→v23 | +0.009 | ✓ Keeps |
+| Wider first layer (512→2048) | v23→v24 | +0.001 | ✓ Marginal |
+| Longer pre-training (500→800 ep) | v23→v24 | Included above | — |
+| SimCLR NT-Xent pre-training | v22→v23B | -0.049 | ✗ REJECTED |
+| Combined cosine+MSE fine-tune loss | v22→v23C | -0.030 | ✗ REJECTED |
+| Expanded STRING pairs (all vs bulk) | v24→v25B | -0.002 | ✗ REJECTED |
+| 2-hop STRING propagation | v25→v26A | -0.007 | ✗ REJECTED |
+
+**Current best: 0.3557** (v25 Exp A / v26 Exp B, stable across 2 runs).  
+**Gap to oracle: 0.1182** (oracle = 0.4739).
+
+**Ceiling diagnosis:** Further architecture tuning is unlikely to close the remaining gap. The fundamental bottleneck is:
+1. **Training data: 1,439 genes** is too few for a generalizable perturbation→effect mapping
+2. **Pre-training data: 2,025 bulk gene signatures** covers only the K562 essential screen
+
+**Highest-leverage next steps (require user decision):**
+1. **Replogle genome-wide K562** (~50 GB, ~10,000 perturbation genes) — biggest lever; needs download
+2. **Larger ESM2 model** (ESM2-650M vs current 8M) — better protein representations; needs re-embedding
+3. **Different downstream formulation** — predict full gene program rather than per-gene delta
+
+The loop has identified the ceiling for the current data/feature regime. Further autonomous iteration without new data inputs would not be productive.
