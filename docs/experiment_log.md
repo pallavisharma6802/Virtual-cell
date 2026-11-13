@@ -2098,3 +2098,40 @@ After v22–v26, we have exhausted the current set of architectural improvements
 3. **Different downstream formulation** — predict full gene program rather than per-gene delta
 
 The loop has identified the ceiling for the current data/feature regime. Further autonomous iteration without new data inputs would not be productive.
+
+---
+
+## 2026-11-14 — Milestone 34: ESM2-650M protein embeddings (v27) — REJECTED
+
+**Hypothesis:** ESM2-8M (8M params, 320d) may be underpowered. ESM2-650M (650M params, 1280d) captures richer protein structure — if protein representation quality is a bottleneck, upgrading should give a clear gain.
+
+**What was built (`scripts/replogle_genelevel_v27.py`, `scripts/embed_esm2_650M.py`):**
+- Re-embedded all 2050 perturbation genes with `facebook/esm2_t33_650M_UR50D` (1280d)
+- New combo features: esm2_650M(1280) + net_esm2_650M(1280) + g2v(200) + net_g2v(200) = **2960d**
+- WideEncoder adapted: 2960→2048→1024→512→256 (same depth, wider input compression)
+- Compared directly to 8M replication (1040d) under identical training protocol
+- Embedding took ~5.8h on CPU (m7i-flex.large); v27 training took ~2h
+
+**Results:**
+| Experiment | Features | Test Pearson | vs best |
+|-----------|----------|-------------|---------|
+| Exp B: ESM2-8M replication | 1040d | **0.3557** | 0.000 |
+| **Exp A: ESM2-650M (main)** | **2960d** | **0.3463** | **-0.009 REJECTED** |
+
+Per-seed (8M): 0.3514, 0.3526, 0.3492, 0.3456, 0.3482 → ensemble 0.3557
+Per-seed (650M): 0.3405, 0.3404, 0.3444, 0.3429, 0.3380 → ensemble 0.3463
+
+**Finding:** ESM2-650M features *hurt* performance (-0.009). The 8M replication is pixel-perfect (0.35568 ≈ v25/v26 0.35568), confirming experimental stability.
+
+**Why 650M underperforms:**
+- With only 1,439 training genes, the 2960d input space (3× larger) requires the first encoder layer to compress much harder (2960→2048), discarding more signal
+- ESM2-650M captures general protein sequence structure at higher resolution, but the perturbation→transcriptome mapping doesn't require that resolution — it needs perturbation-relevance, not sequence accuracy
+- The STRING+bulk similarity pre-training target was designed for 320d features; scaling to 1280d doesn't improve the target signal quality
+
+**Conclusion:** Protein embedding quality/size is **not** the bottleneck. This, combined with the architecture ceiling analysis from Milestone 33, strongly confirms:
+
+> **The bottleneck is data: 1,439 training perturbations is insufficient for generalization.**
+
+All attempted improvements to features (Gene2Vec, ESM2-8M, ESM2-650M, network propagation, 2-hop) and architecture (depth, width, pre-training duration, loss functions) plateau at ~0.3557. The gap to oracle (0.4739) requires more training genes, not better representations.
+
+**Highest-leverage next step:** Replogle genome-wide K562 dataset (~10,000 perturbation genes). This is the last remaining lever that could meaningfully move the needle.
