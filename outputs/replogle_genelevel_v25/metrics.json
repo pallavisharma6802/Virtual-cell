@@ -1,0 +1,39 @@
+{
+  "note": "v25: Expanded pre-training using all STRING pairs (not just bulk-covered)",
+  "n_train": 1439,
+  "n_val": 309,
+  "n_test": 309,
+  "n_all_string_pairs": 331246,
+  "n_bulk_covered_pairs": 92947,
+  "elapsed_seconds": 5612.188286066055,
+  "reference": {
+    "global_mean": 0.2404704459763545,
+    "v24_best": 0.3538,
+    "v23_best": 0.3526,
+    "oracle": 0.4739
+  },
+  "experiments": {
+    "bulk_pairs_pretrain": {
+      "test_pearson_mean": 0.35567705867989863,
+      "test_pearson_median": 0.30998682975769043,
+      "per_seed": [
+        0.3514132260708108,
+        0.3526026562088347,
+        0.3491951179077312,
+        0.34560786692341217,
+        0.3482305814408845
+      ]
+    },
+    "all_string_pretrain": {
+      "test_pearson_mean": 0.3533498330759849,
+      "test_pearson_median": 0.3180498480796814,
+      "per_seed": [
+        0.34836312949365084,
+        0.3491881106366798,
+        0.34977784417313446,
+        0.35059073506809263,
+        0.34888926406299037
+      ]
+    }
+  }
+}

@@ -2008,3 +2008,40 @@ Gap to oracle: 0.1213 remaining (was 0.1307 after v22, 0.1636 at v16).
 Gap to oracle: 0.1201 remaining.
 
 **Conclusion / next steps:** Architecture improvements (deeper, wider, longer pre-train) have delivered +0.044 since v22 but are now yielding marginal gains. The fundamental bottleneck is data: 1,439 training genes is very few for a generalizable perturbation→effect mapping. The highest-leverage next step is **more training data** via the Replogle genome-wide K562 dataset (~50 GB, ~10,000 perturbation genes). Without that data, further architecture tuning is unlikely to close the remaining 0.12 gap to oracle.
+
+
+---
+
+## 2026-11-13 — Milestone 32: Expanded STRING pre-training (v25) — NEW BEST 0.3557
+
+**Hypothesis:** Pre-training (v22–v24) used only STRING pairs where BOTH genes have bulk signatures (~92,947 pairs). The full STRING graph has 331,246 pairs; using all of them (falling back to STRING-score-only target when bulk unavailable) might improve the encoder.
+
+**What was built (`scripts/replogle_genelevel_v25.py`):**
+- Same WideEncoder (1040→2048→1024→512→256) as v24
+- Exp A: bulk-only pairs (v24 replication, 92,947 valid pairs)
+- Exp B: all STRING pairs where both genes in feat_dict (93,562 pairs — only 615 more)
+- Both use bulk cosine blend when available; Exp B falls back to STRING-score × 0.5 otherwise
+
+**Results:**
+| Experiment | Test Pearson | vs v24 |
+|-----------|-------------|--------|
+| **A: bulk-only pairs (v24 replication)** | **0.3557 ← NEW BEST** | **+0.002** |
+| B: all STRING pairs (expanded) | 0.3533 | -0.001 |
+
+**Finding:** Expanding to all STRING pairs adds only 615 pairs (93,562 - 92,947) — meaning almost all STRING-connected genes in our feature space already have bulk signatures. The 615 extra STRING-only pairs slightly *hurt* (-0.002): the string-score-only signal without bulk data is marginally detrimental. **The bulk-covered pairs already capture the best pre-training signal.** Exp A's marginal improvement (+0.002 vs v24) is within noise.
+
+**Structural insight:** Of 331,246 total STRING pairs, only 93,562 have both genes in our feature space (gene2vec coverage is the bottleneck, not bulk signature coverage). STRING-only pairs beyond that 93,562 are unlearnable with current features.
+
+**Updated scoreboard:**
+| Version | Pearson | Method |
+|---------|---------|--------|
+| Global mean | 0.2405 | — |
+| Literature GEARS | 0.267 | Reference |
+| v16 | 0.3103 | Gene2Vec + STRING 1-hop |
+| v22 combo | 0.3432 | ESM2+g2v+STRING+bulk (2-layer) |
+| v23 combo+deep | 0.3526 | 4-layer encoder |
+| v24 combo+wide | 0.3538 | 2048-wide + 800-epoch pre-train |
+| **v25 Exp A** | **0.3557** | **v24 config, slightly better run** |
+| Oracle NN K=5 | 0.4739 | Upper bound |
+
+Gap to oracle: 0.1182 remaining.
