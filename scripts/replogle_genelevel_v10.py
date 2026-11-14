@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 from collections import defaultdict
 
+import gc
+
 import anndata as ad
 import numpy as np
 from scipy.stats import pearsonr
@@ -37,7 +39,7 @@ from virtualcell.data.target_descriptors import (
 MIN_CELLS = 5
 TARGET_SUM = 10_000.0
 N_HVG = 5000
-CHUNK_SIZE = 6000
+CHUNK_SIZE = 4000  # smaller chunks → lower peak RAM per iteration
 MAX_CELLS_RR = 100  # per-gene cap for response_role training cells
 
 
@@ -137,28 +139,50 @@ def main():
     ctrl_std = np.sqrt(np.maximum(ctrl_sum2 / n_ctrl - (ctrl_sum / n_ctrl) ** 2, 0)).astype(np.float32)
     print(f"Control mean/std over {n_ctrl} cells.")
 
-    print(f"Computing online mean deltas ({len(all_target_pos)} target cells)...")
-    gene_sum = {g: np.zeros(N_HVG, dtype=np.float64) for g in all_genes}
-    gene_count = {g: 0 for g in all_genes}
+    # Vectorized scatter-add (np.add.at) avoids per-cell Python loop overhead.
+    # gene_sum_arr: (n_genes, N_HVG) float32 — 41MB; gene_count_arr: (n_genes,) int32
+    print(f"Computing online mean deltas ({len(all_target_pos)} target cells, vectorized)...")
+    gene_to_idx = {g: i for i, g in enumerate(all_genes)}
+    gene_sum_arr = np.zeros((len(all_genes), N_HVG), dtype=np.float32)
+    gene_count_arr = np.zeros(len(all_genes), dtype=np.int32)
     n_all = len(all_target_pos)
     for start in range(0, n_all, CHUNK_SIZE):
         chunk_rows = all_target_pos[start: start + CHUNK_SIZE]
-        X_t = lognorm_chunk(adata.X[chunk_rows], top_gene_idx)
-        for i, g in enumerate([gene_col[p] for p in chunk_rows]):
-            if g in gene_sum:
-                gene_sum[g] += X_t[i].astype(np.float64)
-                gene_count[g] += 1
-        del X_t
-        if (start // CHUNK_SIZE) % 10 == 0:
+        X_t = lognorm_chunk(adata.X[chunk_rows], top_gene_idx)  # float32, no copy
+        chunk_idxs = np.array(
+            [gene_to_idx.get(gene_col[p], -1) for p in chunk_rows], dtype=np.int32
+        )
+        valid = chunk_idxs >= 0
+        np.add.at(gene_sum_arr, chunk_idxs[valid], X_t[valid])
+        np.add.at(gene_count_arr, chunk_idxs[valid], 1)
+        del X_t, chunk_idxs, valid
+        gc.collect()
+        if (start // CHUNK_SIZE) % 15 == 0:
             pct = min(100, 100 * (start + len(chunk_rows)) // n_all)
             print(f"  {pct}% done", flush=True)
 
+    # Save to disk and reload to free h5py page cache and Python temporary arrays
+    cache_path = Path("outputs/replogle_genelevel_v10/mean_delta_cache.npz")
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    valid_genes = [g for i, g in enumerate(all_genes) if gene_count_arr[i] >= MIN_CELLS]
+    valid_counts = np.array([gene_count_arr[i] for i, g in enumerate(all_genes) if gene_count_arr[i] >= MIN_CELLS], dtype=np.int32)
+    valid_sums = np.array([gene_sum_arr[i] for i, g in enumerate(all_genes) if gene_count_arr[i] >= MIN_CELLS], dtype=np.float32)
+    np.savez(str(cache_path), valid_sums=valid_sums, valid_counts=valid_counts)
+    with open(str(cache_path).replace(".npz", "_genes.json"), "w") as f:
+        import json as _json
+        _json.dump(valid_genes, f)
+    del gene_sum_arr, gene_count_arr, valid_sums, valid_counts, adata
+    gc.collect()
+    # Reload cleanly
+    cache = np.load(str(cache_path))
     all_mean_deltas = {
-        g: (gene_sum[g] / gene_count[g]).astype(np.float32) - control_mean
-        for g in all_genes if gene_count[g] >= MIN_CELLS
+        g: cache["valid_sums"][i] / cache["valid_counts"][i] - control_mean
+        for i, g in enumerate(valid_genes)
     }
+    del cache
+    gc.collect()
     fetch_time = time.time() - t0
-    print(f"Mean deltas done in {fetch_time:.1f}s.")
+    print(f"Mean deltas done in {fetch_time:.1f}s. {len(all_mean_deltas)} genes.")
 
     train_t, test_t_full = train_test_split(list(all_mean_deltas.keys()), test_size=0.3, random_state=0)
     val_t, test_t = train_test_split(test_t_full, test_size=0.5, random_state=0)
@@ -178,6 +202,9 @@ def main():
 
     # --- response_role with per-cell deltas, capped at MAX_CELLS_RR ---
     print(f"Building response_role (per-cell, cap={MAX_CELLS_RR}/gene) ...")
+    adata2 = ad.read_h5ad(
+        "data/replogle/K562_essential_raw_singlecell_01.h5ad", backed="r"
+    )
     train_set = set(train_t)
     cell_deltas_list = []
     cell_gene_labels = []
@@ -189,7 +216,7 @@ def main():
                       if g in train_set and gene_cell_counts[g] < MAX_CELLS_RR]
         if not train_mask:
             continue
-        X_t = lognorm_chunk(adata.X[chunk_rows], top_gene_idx)
+        X_t = lognorm_chunk(adata2.X[chunk_rows], top_gene_idx)
         for i in train_mask:
             g = chunk_genes[i]
             if gene_cell_counts[g] < MAX_CELLS_RR:
@@ -204,7 +231,8 @@ def main():
         cell_gene_labels, train_cell_delta_all, top_gene_names,
         n_components=rr_dim, seed=0,
     )
-    del train_cell_delta_all, cell_deltas_list
+    del train_cell_delta_all, cell_deltas_list, adata2
+    gc.collect()
     print(f"Response_role fitted (dim={rr_dim}).")
 
     # --- Stage 1 models ---
