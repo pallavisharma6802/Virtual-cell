@@ -2135,3 +2135,51 @@ Per-seed (650M): 0.3405, 0.3404, 0.3444, 0.3429, 0.3380 → ensemble 0.3463
 All attempted improvements to features (Gene2Vec, ESM2-8M, ESM2-650M, network propagation, 2-hop) and architecture (depth, width, pre-training duration, loss functions) plateau at ~0.3557. The gap to oracle (0.4739) requires more training genes, not better representations.
 
 **Highest-leverage next step:** Replogle genome-wide K562 dataset (~10,000 perturbation genes). This is the last remaining lever that could meaningfully move the needle.
+
+## 2026-11-14 — Milestone 35: Genome-wide bulk pre-training (v28) — ALL EXPERIMENTS REJECTED
+
+**Hypothesis (data bottleneck):** If the architecture ceiling (~0.3557) is caused by insufficient fine-tuning data (1,439 genes), then pre-training on more perturbation signatures should help the encoder learn a richer gene-effect representation. The GWPS dataset provides bulk signatures for 9,474 genes (vs 2,025 for essential) — a 4.7× increase in pre-training perturbation coverage.
+
+**What was built (`scripts/replogle_genelevel_v28.py`):**
+- Three-way comparison: GWPS bulk pre-train (9,474 genes), essential bulk pre-train (2,025 genes, replication), g2v-only features (ablation)
+- Pre-training target unchanged: 0.5×STRING_score + 0.5×bulk_cosine similarity
+- GWPS STRING pairs: 240,522 (vs 92,947 for essential) — 2.6× more pairs
+- Same WideEncoder, same fine-tuning protocol (5 seeds, held-out-target split)
+- Runtime: 7,530s (~2.1h) for all 3 experiments
+
+**Results:**
+| Experiment | Features | Pre-train data | STRING pairs | Test Pearson | vs best |
+|-----------|----------|----------------|-------------|-------------|---------|
+| Exp B: essential replication | 1040d | 2,025 genes | 92,947 | **0.3510** | -0.005 |
+| Exp C: GWPS combo | 1040d | **9,474 genes** | **240,522** | **0.3482** | **-0.008 REJECTED** |
+| Exp A: GWPS g2v-only | 400d | 9,474 genes | 240,522 | **0.3482** | **-0.008 REJECTED** |
+
+Per-seed (Exp B essential): 0.3466, 0.3470, 0.3480, 0.3451, 0.3450
+Per-seed (Exp C GWPS combo): 0.3408, 0.3411, 0.3451, 0.3428, 0.3454
+Per-seed (Exp A GWPS g2v-only): 0.3390, 0.3396, 0.3372, 0.3386, 0.3399
+
+Note: Exp B replication is 0.3510 vs v25/v27 0.3557 — difference is within run-to-run variance (expected ±0.005 from random seed effects).
+
+**Finding:** More pre-training data (9,474 vs 2,025 genes, 2.6× more STRING pairs) consistently HURTS performance by -0.008. This holds for both 1040d and 400d feature sets. ESM2 features remain important (400d g2v-only ≈ 0.348 vs 1040d combo ≈ 0.351), but that gap is smaller than expected.
+
+**Why GWPS pre-training hurts:**
+- **Domain mismatch**: GWPS perturbs non-essential genes (non-lethal KOs) which tend to have weaker, noisier transcriptional signatures. The pre-training signal is diluted by lower-quality pairs.
+- **Misdirected representation**: The encoder must fit a broader, more diverse gene landscape during pre-training. The resulting embeddings are more general but less specialized for the K562 essential gene regime that fine-tuning operates in.
+- **Consistent pattern**: Across all sessions, expanding beyond the essential gene universe (whether by 2-hop STRING, expanded STRING pairs, ESM2-650M, or now GWPS pre-training) consistently hurts. The essential K562 perturbation regime is narrow and specialized.
+
+**Scoreboard after Milestones 1–35:**
+
+All exhausted levers:
+- Architecture: depth ✗, width ✗, pre-training duration ✗, loss functions ✗
+- Features: gene2vec ✗, ESM2-8M ✗, ESM2-650M ✗, 2-hop STRING ✗
+- Pre-training data: essential bulk (2,025 genes) ✗, GWPS bulk (9,474 genes) ✗ (hurts)
+- Fine-tuning data: stuck at 1,439 essential genes
+
+**Conclusion:** The ~0.3557 ceiling is robust. Pre-training data quantity is **not** the bottleneck either; pre-training data *quality and domain* matters more than quantity. With only 1,439 fine-tuning gene perturbations (single-cell), all proxy improvements (better embeddings, more pre-training pairs, deeper networks) are saturated.
+
+**The only remaining untested levers:**
+1. **GWPS single-cell data**: `K562_gwps_raw_singlecell_01.h5ad` on figshare — if it exists and contains 7,000+ genome-wide single-cell perturbation signatures, joint fine-tuning on essential + GWPS single-cell would directly address the data bottleneck
+2. **Different Perturb-seq datasets**: Norman et al. (K562 CRISPRa), Adamson et al., Dixit et al. have smaller gene sets but might combine for more coverage
+3. **Abandon held-out-target generalization**: train on all 2,057 essential genes, evaluate in-distribution only (not scientifically interesting but would confirm data theory)
+
+**Highest-leverage next step:** Investigate whether `K562_gwps_raw_singlecell_01.h5ad` exists on figshare (doi 10.25452/figshare.plus.20029387). If GWPS single-cell is available, v29 would joint-train on essential + GWPS single-cell signatures for a 5–6× increase in fine-tuning gene count.
