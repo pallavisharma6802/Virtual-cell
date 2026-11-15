@@ -76,21 +76,70 @@ the ensemble mean.
 
 ---
 
-## What we tried and what happened
+## Full experiment history (35 milestones)
 
-Over 35 milestones, every major improvement avenue was tested:
+### Phase 1 — Architecture search with Arc data (Milestones 1–9)
+
+We started on a different dataset (Arc Institute Perturb-seq) with a
+per-cell prediction formulation before realizing the fundamental setup was wrong.
 
 | What we tried | Result |
 |---|---|
-| Deeper / wider networks | No gain past v14 |
-| Longer pre-training (200→800 epochs) | Marginal gain, plateau at 800 |
-| Different loss functions (cosine, combo) | No gain |
-| ESM2-650M (1280d) instead of ESM2-8M (320d) | **Worse** (−0.009) |
-| 2-hop STRING propagation | **Worse** (−0.009) |
-| Expanding STRING to all pairs (not just bulk-covered) | Slight gain |
-| GWPS bulk pre-training (9,474 genes vs 2,025) | **Worse** (−0.008) |
+| PCA + ridge regression baseline | Pearson ~0.05 — essentially random |
+| Small MLP on control-cell state + target gene descriptor | No better than ridge |
+| Co-expression profile as target descriptor | No gain |
+| Gene2Vec pretrained embeddings | No gain |
+| Causal descriptor (effect direction from literature) | No gain |
+| GEARS-lite (GO-similarity effect retrieval) | No gain |
+| Scaling up to 100k+ cells | Did not change results |
+| Many distinct target genes (more training variety) | No gain |
 
-**Conclusion:** The ceiling at ~0.3557 is caused by having only 1,439
+**Key pivot:** Per-cell prediction (predict individual cell state) is a much
+harder task. We switched to predicting the **mean** expression delta per gene —
+the average response across all perturbed cells. This is what the GEARS paper
+evaluates on.
+
+### Phase 2 — Gene-level prediction, finding the right setup (Milestones 10–17)
+
+Switched to the Replogle K562 essential dataset and gene-level mean-delta
+prediction. Spent several milestones getting the evaluation metric right.
+
+| What we tried | Result |
+|---|---|
+| Mean delta prediction, wrong normalization | Low numbers |
+| log1p normalization (like GEARS) | **Big jump** — this was the missing piece |
+| 5000 HVGs instead of all genes | No change |
+| Concatenating multiple descriptor types | No synergy |
+| NN retrieval (find similar training genes, use their response) | Weak |
+| Per-cell response_role (secondary PCA representation) | Small gain |
+
+**Checkpoint:** Got Pearson ~0.27, matching GEARS literature baseline.
+
+### Phase 3 — Feature engineering, hitting the ceiling (Milestones 18–35)
+
+| What we tried | Pearson | vs best |
+|---|---|---|
+| ESM2-8M protein embeddings (v18) | 0.323 | — new best |
+| Multi-hop STRING GNN (v19) | 0.318 | worse |
+| Episodic meta-learning (v20) | 0.316 | worse |
+| Bulk pre-training on STRING pairs (v21) | 0.329 | new best |
+| ESM2 + Gene2Vec + STRING + bulk combo (v22) | 0.343 | new best |
+| Deeper encoder + SimCLR NT-Xent loss (v23) | 0.353 | new best |
+| Wider encoder + longer pre-training (v24) | 0.354 | new best |
+| **Expanded STRING pre-training — v25** | **0.3557** | **best ever** |
+| 2-hop STRING propagation (v26) | 0.3557 | no gain |
+| ESM2-650M 1280d embeddings (v27) | 0.346 | **worse −0.009** |
+| GWPS genome-wide bulk pre-training (v28) | 0.348 | **worse −0.008** |
+
+**Things that didn't move the needle at all once we hit v25:**
+- Deeper or wider networks
+- Longer pre-training (200 → 800 epochs)
+- Different loss functions (cosine, combo, NT-Xent)
+- Larger protein embeddings (ESM2-650M)
+- 2× more STRING graph hops
+- 4.7× more pre-training genes (GWPS bulk, 9,474 genes)
+
+**Conclusion:** The ceiling at **~0.3557** is caused by having only 1,439
 fine-tuning genes. No embedding or architecture improvement can substitute
 for more direct training data. The gap to oracle (0.474) requires either a
 larger perturbation screen or a fundamentally different approach.
