@@ -25,7 +25,15 @@ def fit_scaler(dataset: CanonicalDataset, manifest: SplitManifest, eps: float = 
     """Fit mean/std on the TRAIN split only."""
     obs = dataset.adata.obs
     train_mask = obs.index.isin(manifest.train_cell_ids)
-    X_train = np.asarray(dataset.adata.X[train_mask])
-    mean_ = X_train.mean(axis=0)
-    std_ = X_train.std(axis=0) + eps
+    X_raw = dataset.adata.X[train_mask]
+    # Sparse matrices don't support np.asarray → use sparse-aware paths
+    if hasattr(X_raw, "toarray"):
+        mean_ = np.asarray(X_raw.mean(axis=0)).ravel()
+        # var = E[x^2] - E[x]^2, computed without materializing the full matrix
+        mean_sq = np.asarray(X_raw.power(2).mean(axis=0)).ravel()
+        std_ = np.sqrt(np.maximum(mean_sq - mean_ ** 2, 0.0)) + eps
+    else:
+        X_train = np.asarray(X_raw)
+        mean_ = X_train.mean(axis=0)
+        std_ = X_train.std(axis=0) + eps
     return Scaler(mean_=mean_, std_=std_)

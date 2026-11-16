@@ -46,6 +46,13 @@ def held_out_target_split(
     Control cells are distributed into all three splits (they carry no
     target leakage since 'control' is not a held-out target).
     """
+    if val_frac < 0 or test_frac < 0:
+        raise ValueError(f"val_frac and test_frac must be non-negative, got {val_frac}, {test_frac}")
+    if val_frac + test_frac >= 1.0:
+        raise ValueError(
+            f"val_frac + test_frac must be < 1.0, got {val_frac + test_frac:.3f} — no training data would remain"
+        )
+
     rng = np.random.default_rng(seed)
     obs = dataset.adata.obs
     targets = dataset.targets()
@@ -53,8 +60,14 @@ def held_out_target_split(
     rng.shuffle(targets_shuffled)
 
     n = len(targets_shuffled)
-    n_test = max(1, int(round(n * test_frac)))
-    n_val = max(1, int(round(n * val_frac)))
+    if n < 3:
+        raise ValueError(f"Dataset has only {n} target(s); need at least 3 to form train/val/test splits")
+
+    n_test = int(round(n * test_frac)) if test_frac > 0 else 0
+    n_val = int(round(n * val_frac)) if val_frac > 0 else 0
+    # Clamp so train always gets at least one target
+    n_test = min(n_test, n - 2)
+    n_val = min(n_val, n - n_test - 1)
     test_targets = targets_shuffled[:n_test]
     val_targets = targets_shuffled[n_test : n_test + n_val]
     train_targets = targets_shuffled[n_test + n_val :]

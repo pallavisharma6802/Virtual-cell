@@ -118,15 +118,15 @@ def load_string_net(gene2vec_lookup, esm2_lookup, all_gene_names) -> tuple:
         esm2 = esm2_lookup.get(g, zero_esm2)
         nbrs = neighbors.get(g, [])
         if nbrs:
-            total_w, ws_g2v, ws_esm2 = 0.0, np.zeros(200, np.float64), np.zeros(320, np.float64)
+            tw_g2v, tw_esm2 = 0.0, 0.0
+            ws_g2v, ws_esm2 = np.zeros(200, np.float64), np.zeros(320, np.float64)
             for nbr, w in nbrs:
                 vg = gene2vec_lookup.get(nbr)
                 ve = esm2_lookup.get(nbr)
-                if vg is not None: ws_g2v += w * vg; total_w += w
-                if ve is not None: ws_esm2 += w * ve
-            denom = total_w if total_w > 0 else 1.0
-            net_g2v = (ws_g2v / denom).astype(np.float32)
-            net_esm2 = (ws_esm2 / denom).astype(np.float32)
+                if vg is not None: ws_g2v += w * vg; tw_g2v += w
+                if ve is not None: ws_esm2 += w * ve; tw_esm2 += w
+            net_g2v = (ws_g2v / (tw_g2v if tw_g2v > 0 else 1.0)).astype(np.float32)
+            net_esm2 = (ws_esm2 / (tw_esm2 if tw_esm2 > 0 else 1.0)).astype(np.float32)
         else:
             net_g2v, net_esm2 = zero_g2v, zero_esm2
         combo_dict[g] = np.concatenate([esm2, net_esm2, g2v, net_g2v])  # 1040d
@@ -292,10 +292,15 @@ def finetune(model, feat_dict, train_genes, train_md, val_t, val_md, test_t, tes
 
 
 def run_ensemble(name, feat_dict, feat_d, train_genes, train_md, val_t, val_md, test_t, test_md,
-                 pretrain_fn=None, n_seeds=5):
+                 pretrain_fn=None, n_seeds=5, save_dir: Path | None = None):
     delta_d = list(train_md.values())[0].shape[0]
     preds_all, seed_sc = [], []
     X_te = np.array([feat_dict.get(g, np.zeros(feat_d, np.float32)) for g in test_t])
+
+    ckpt_dir = None
+    if save_dir is not None:
+        ckpt_dir = save_dir / name / "checkpoints"
+        ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     for seed in range(n_seeds):
         torch.manual_seed(seed)
@@ -310,10 +315,29 @@ def run_ensemble(name, feat_dict, feat_d, train_genes, train_md, val_t, val_md, 
         with torch.no_grad(): raw = m(torch.tensor(X_te, dtype=torch.float32)).numpy()
         preds_all.append(raw); seed_sc.append(em_s)
         print(f"    seed {seed}: val={bvr:.4f} test={em_s:.4f}")
+        if ckpt_dir is not None:
+            torch.save(m.state_dict(), ckpt_dir / f"seed{seed}.pt")
 
-    ens = {g: np.mean(preds_all, axis=0)[i] for i, g in enumerate(test_t)}
+    ens_preds = np.mean(preds_all, axis=0)
+    ens = {g: ens_preds[i] for i, g in enumerate(test_t)}
     em, emed = pearson_per_gene(ens, test_md)
     print(f"  → {em:.4f} (median {emed:.4f})")
+
+    if save_dir is not None:
+        pred_dir = save_dir / name
+        pred_dir.mkdir(parents=True, exist_ok=True)
+        # Per-target ensemble predictions as npz
+        np.savez(
+            pred_dir / "predictions.npz",
+            genes=np.array(test_t),
+            preds=ens_preds,
+        )
+        # Split IDs for auditing
+        import json as _json
+        (pred_dir / "split_ids.json").write_text(_json.dumps(
+            {"train": sorted(train_genes), "val": sorted(val_t), "test": sorted(test_t)}, indent=2
+        ))
+
     return em, emed, seed_sc
 
 
@@ -381,6 +405,7 @@ def main():
     print("\n--- Experiment A: bulk-only pairs pre-train (v24 replication) ---")
     em_a, emed_a, sc_a = run_ensemble(
         "bulk_pairs_pretrain", combo_dict, feat_d, train_t, train_md, val_t, val_md, test_t, test_md,
+        save_dir=OUT_DIR,
         pretrain_fn=lambda enc, seed: pretrain_all_string(
             enc, combo_dict, all_pairs, sig_norm, sig_idx,
             bulk_only=True, pretrain_epochs=PRETRAIN_EPOCHS, seed=seed),
@@ -391,6 +416,7 @@ def main():
     print("\n--- Experiment B: all STRING pairs (expanded pre-training) ---")
     em_b, emed_b, sc_b = run_ensemble(
         "all_string_pretrain", combo_dict, feat_d, train_t, train_md, val_t, val_md, test_t, test_md,
+        save_dir=OUT_DIR,
         pretrain_fn=lambda enc, seed: pretrain_all_string(
             enc, combo_dict, all_pairs, sig_norm, sig_idx,
             bulk_only=False, pretrain_epochs=PRETRAIN_EPOCHS, seed=seed),

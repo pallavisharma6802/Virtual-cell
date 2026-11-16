@@ -70,9 +70,16 @@ interaction networks.
 
 4. **Evaluate** on 309 held-out test genes the model has never seen.
 
-The architecture is a 4-layer MLP (1040→512→256→128→64→output) with
-LayerNorm, GELU activations, and dropout. We train 5 random seeds and report
-the ensemble mean.
+The encoder is a 4-layer MLP (1040→2048→1024→512→256) with LayerNorm and
+GELU activations, followed by a 2-layer prediction head (256→512→output).
+We train 5 random seeds and report the ensemble mean.
+
+**Evaluation note:** In v25, bulk perturbation signatures are loaded before
+the train/test split and used to supervise pre-training similarity. This means
+test-gene bulk responses contribute to pre-training signal, which slightly
+overstates true generalization. Single-cell fine-tuning does exclude test
+targets, so the gap versus GEARS remains meaningful, but the number should be
+treated as an upper bound on a fully leak-free setup.
 
 ---
 
@@ -139,10 +146,12 @@ prediction. Spent several milestones getting the evaluation metric right.
 - 2× more STRING graph hops
 - 4.7× more pre-training genes (GWPS bulk, 9,474 genes)
 
-**Conclusion:** The ceiling at **~0.3557** is caused by having only 1,439
-fine-tuning genes. No embedding or architecture improvement can substitute
-for more direct training data. The gap to oracle (0.474) requires either a
-larger perturbation screen or a fundamentally different approach.
+**Hypothesis:** The ceiling at **~0.3557** may be caused by having only 1,439
+fine-tuning genes. No embedding or architecture improvement has moved it, which
+is consistent with a data-size limit, but this is not definitively established —
+a qualitatively different architecture or objective could also break through.
+The gap to oracle (0.474) likely requires either a larger perturbation screen or
+a fundamentally different approach.
 
 ---
 
@@ -173,15 +182,23 @@ src/virtualcell/             — original library scaffold (Milestones 1–9)
 **Requirements:** Python 3.11+, ~12 GB RAM, the data files downloaded to
 `data/` (see `docs/dataset_card.md`).
 
+v25 depends on a preprocessed cache from v10. Run these in order:
+
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
+# Step 1: build the v10 mean-delta cache (required by v25)
+python -u scripts/replogle_genelevel_v10.py
+# → outputs/replogle_genelevel_v10/mean_delta_cache.npz
+# → outputs/replogle_genelevel_v10/mean_delta_cache_genes.json
+# Step 2: run v25
 python -u scripts/replogle_genelevel_v25.py
 # → outputs/replogle_genelevel_v25/metrics.json
 ```
 
-The script downloads nothing — all data must be pre-staged. It takes ~40
-minutes on a CPU-only machine (m7i-flex.large or equivalent).
+The scripts download nothing — all data must be pre-staged. v10 takes ~25
+minutes and v25 takes ~40 minutes on a CPU-only machine (m7i-flex.large or
+equivalent).
 
 ---
 

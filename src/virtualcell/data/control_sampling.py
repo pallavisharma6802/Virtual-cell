@@ -29,7 +29,8 @@ def sample_matched_controls(
     """
     rng = np.random.default_rng(seed)
     obs = dataset.adata.obs
-    X = np.asarray(dataset.adata.X)
+    # Keep sparse — materialize only the single row we need per cell
+    X = dataset.adata.X
 
     pool_mask = obs.index.isin(control_pool_cell_ids)
     pool_batches = obs.loc[pool_mask, "batch_id"] if "batch_id" in obs.columns else pd.Series(dtype=object)
@@ -49,6 +50,7 @@ def sample_matched_controls(
             candidates = batch_to_positions.get(batch)
         if not candidates:
             candidates = pool_positions
-        chosen = candidates[rng.integers(0, len(candidates))]
-        out[i] = X[chosen]
+        chosen = int(candidates[rng.integers(0, len(candidates))])
+        row = X[chosen]
+        out[i] = np.asarray(row.todense()).ravel() if hasattr(row, "todense") else np.asarray(row).ravel()
     return out
