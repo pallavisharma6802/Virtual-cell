@@ -185,6 +185,17 @@ minutes on a CPU-only machine (m7i-flex.large or equivalent).
 
 ---
 
+## Interactive visualization
+
+A live 3D K562 cell with CRISPRi knockdown simulation:
+**[https://claude.ai/artifact/Nr1d5BcaGWY7yen7CSYyRX](https://claude.ai/artifact/Nr1d5BcaGWY7yen7CSYyRX)**
+
+Hover a gene node (green dots) to see its name. Click a node to simulate
+a knockdown — blue nodes go up-regulated, orange nodes go down-regulated.
+The cell auto-rotates; drag to orbit. Built with Three.js (WebGL).
+
+---
+
 ## Infrastructure
 
 Experiments were run on AWS EC2 (`m7i-flex.large`, 8 vCPU / 8 GB RAM).
