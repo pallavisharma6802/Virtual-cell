@@ -180,23 +180,23 @@ src/virtualcell/             — original library scaffold (Milestones 1–9)
 
 ---
 
-## Reproducing the best result (v25)
+## Reproducing the best result (v29)
 
 **Requirements:** Python 3.11+, ~12 GB RAM, the data files downloaded to
 `data/` (see `docs/dataset_card.md`).
 
-v25 depends on a preprocessed cache from v10. Run these in order:
+v29 depends on a preprocessed cache from v10. Run these in order:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
-# Step 1: build the v10 mean-delta cache (required by v25)
+# Step 1: build the v10 mean-delta cache (required by v29)
 python -u scripts/replogle_genelevel_v10.py
 # → outputs/replogle_genelevel_v10/mean_delta_cache.npz
 # → outputs/replogle_genelevel_v10/mean_delta_cache_genes.json
-# Step 2: run v25
-python -u scripts/replogle_genelevel_v25.py
-# → outputs/replogle_genelevel_v25/metrics.json
+# Step 2: run v29 (leak-free)
+python -u scripts/replogle_genelevel_v29.py
+# → outputs/replogle_genelevel_v29/metrics.json
 ```
 
 The scripts download nothing — all data must be pre-staged. v10 takes ~25

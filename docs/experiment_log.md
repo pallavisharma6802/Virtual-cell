@@ -2206,12 +2206,24 @@ Result: 1,417 bulk signatures (down from ~2,050), 45,462 bulk-covered STRING pai
 (down from ~170k). Val/test gene pairs still receive STRING topology signal (weight
 0.5) but no bulk cosine supervision.
 
+### What else changed vs v25
+
+v29 also incorporates the STRING normalization fix (separate weight totals for
+ESM2 and Gene2Vec propagation, committed in the code-review pass). This is a
+silent correctness bug in all prior runs. Its isolated effect on the score is
+unknown — no matched ablation was run. The drop from 0.3557 to 0.3292 should be
+attributed to **both** the leakage fix and the STRING normalization fix together,
+not to leakage alone.
+
 ### Results
 
-| Experiment | v25 (leaked) | v29 (leak-free) | Drop |
+Historical v25 values: Exp A (bulk-only pairs) = **0.3557** (the winning config);
+Exp B (expanded STRING pairs) = ~0.3538 (rejected in v25, −0.002 vs Exp A).
+
+| Experiment | v25 (leaked + old norm) | v29 (leak-free + fixed norm) | Drop |
 |---|---|---|---|
-| Exp A: bulk-only pairs pre-train | 0.3538 | **0.3292** | −0.025 |
-| Exp B: all STRING pairs (expanded) | **0.3557** | **0.3136** | −0.042 |
+| Exp A: bulk-only pairs pre-train | **0.3557** | **0.3292** | −0.027 |
+| Exp B: all STRING pairs (expanded) | ~0.3538 | 0.3136 | −0.040 |
 | Global mean baseline | 0.240 | 0.2405 | — |
 
 Per-seed Exp A: 0.3199, 0.3204, 0.3227, 0.3269, 0.3204 → ensemble **0.3292**
@@ -2219,19 +2231,23 @@ Per-seed Exp B: 0.3088, 0.3051, 0.2994, 0.3091, 0.2988 → ensemble **0.3136**
 
 ### Interpretation
 
-The leak-free best is **0.3292** (Exp A), vs 0.3557 (v25 Exp B with leakage).
-The gap is ~0.026 — meaningful but not catastrophic. The model still beats GEARS
-(0.267) by **23%** in the fully leak-free setting.
+The corrected best is **0.3292** (Exp A). The drop from 0.3557 reflects two changes
+applied together (leakage fix + STRING normalization fix); the individual contribution
+of each is unquantified without a matched ablation.
 
-Interestingly, expanded STRING pre-training (Exp B) now *hurts* vs bulk-only (Exp A)
-in the leak-free setting. In v25, Exp B gained from test-gene bulk cosine supervision
-on the extra pairs. Without that, adding more pairs increases noise relative to signal.
+Expanded STRING pre-training (Exp B) is worse than bulk-only (Exp A) in v29, as it
+was in v25. This is consistent; v25 Exp B was already rejected. The v29 drop is larger
+in absolute terms, possibly because extra pairs amplify the effect of the normalization
+fix or the reduced leakage, but no strong conclusion follows without isolating variables.
 
-**The 0.3557 headline number was overstated.** The honest leak-free number is **0.3292**.
-The model still meaningfully beats GEARS, but by a smaller margin.
+**The 0.3557 headline number was overstated.** The corrected number is **0.3292**, with
+the caveat that at least two changes contributed to the drop. The model still beats
+GEARS (0.267) by **23%**.
 
 ### Next steps
 
-Same as before — the ceiling is now confirmed at ~0.33 without leakage. The only
-path to higher is more perturbation training data. The GWPS single-cell investigation
-remains the highest-leverage next step.
+The score has not been pushed higher by any embedding, architecture, or pre-training
+change tried so far (~35 milestones). More perturbation fine-tuning data remains the
+leading hypothesis for further gains, but this is unconfirmed — a qualitatively
+different approach could also break through. The GWPS single-cell investigation
+remains the highest-leverage concrete next step to test the data-quantity hypothesis.
