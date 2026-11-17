@@ -2183,3 +2183,55 @@ All exhausted levers:
 3. **Abandon held-out-target generalization**: train on all 2,057 essential genes, evaluate in-distribution only (not scientifically interesting but would confirm data theory)
 
 **Highest-leverage next step:** Investigate whether `K562_gwps_raw_singlecell_01.h5ad` exists on figshare (doi 10.25452/figshare.plus.20029387). If GWPS single-cell is available, v29 would joint-train on essential + GWPS single-cell signatures for a 5–6× increase in fine-tuning gene count.
+
+---
+
+## 2026-11-18 — Milestone 36: v29 leak-free pre-training rerun
+
+**Branch:** `v29-leak-free-pretrain`
+**Script:** `scripts/replogle_genelevel_v29.py`
+**EC2 runtime:** 5588s (~93 min, m7i-flex.large)
+
+### What changed vs v25
+
+The code review (finding 1) identified that v25 loaded bulk perturbation signatures
+from **all** genes before the train/test split, allowing test-gene responses to
+supervise pairwise pre-training similarity. v29 fixes this by:
+
+1. Splitting first (identical `random_state=0`, same 1439/309/309 gene assignment)
+2. Calling `load_bulk_signatures(..., train_genes=set(train_t))` to restrict bulk
+   supervision to train genes only
+
+Result: 1,417 bulk signatures (down from ~2,050), 45,462 bulk-covered STRING pairs
+(down from ~170k). Val/test gene pairs still receive STRING topology signal (weight
+0.5) but no bulk cosine supervision.
+
+### Results
+
+| Experiment | v25 (leaked) | v29 (leak-free) | Drop |
+|---|---|---|---|
+| Exp A: bulk-only pairs pre-train | 0.3538 | **0.3292** | −0.025 |
+| Exp B: all STRING pairs (expanded) | **0.3557** | **0.3136** | −0.042 |
+| Global mean baseline | 0.240 | 0.2405 | — |
+
+Per-seed Exp A: 0.3199, 0.3204, 0.3227, 0.3269, 0.3204 → ensemble **0.3292**
+Per-seed Exp B: 0.3088, 0.3051, 0.2994, 0.3091, 0.2988 → ensemble **0.3136**
+
+### Interpretation
+
+The leak-free best is **0.3292** (Exp A), vs 0.3557 (v25 Exp B with leakage).
+The gap is ~0.026 — meaningful but not catastrophic. The model still beats GEARS
+(0.267) by **23%** in the fully leak-free setting.
+
+Interestingly, expanded STRING pre-training (Exp B) now *hurts* vs bulk-only (Exp A)
+in the leak-free setting. In v25, Exp B gained from test-gene bulk cosine supervision
+on the extra pairs. Without that, adding more pairs increases noise relative to signal.
+
+**The 0.3557 headline number was overstated.** The honest leak-free number is **0.3292**.
+The model still meaningfully beats GEARS, but by a smaller margin.
+
+### Next steps
+
+Same as before — the ceiling is now confirmed at ~0.33 without leakage. The only
+path to higher is more perturbation training data. The GWPS single-cell investigation
+remains the highest-leverage next step.

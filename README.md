@@ -43,12 +43,14 @@ actual mean delta, averaged across those 309 test genes.
 |---|---|---|
 | Global mean baseline | 0.240 | Predict the same average response for every gene |
 | Literature GEARS | 0.267 | Published baseline from Roohani et al. 2023 |
-| **This project (best)** | **0.3557** | v25: ESM2-8M + Gene2Vec + STRING pre-training |
+| **This project (leak-free best)** | **0.3292** | v29: same as v25, bulk pre-training restricted to train genes |
+| This project (prior best, leaked) | ~~0.3557~~ | v25: test-gene bulk responses leaked into pre-training |
 | Oracle upper bound | 0.474 | Train and test on the same gene (not generalizable) |
 
-Our best model beats GEARS by **33%** without any deep GEARS-style graph neural
-network — just gene embeddings + a small MLP with pre-training on protein
-interaction networks.
+Our leak-free best beats GEARS by **23%**. An earlier number (0.3557) was overstated
+because bulk perturbation signatures from held-out test genes were visible during
+pre-training. The corrected number uses identical architecture and split, with
+test/val gene signatures excluded from pre-training supervision.
 
 ---
 
@@ -137,6 +139,7 @@ prediction. Spent several milestones getting the evaluation metric right.
 | 2-hop STRING propagation (v26) | 0.3557 | no gain |
 | ESM2-650M 1280d embeddings (v27) | 0.346 | **worse −0.009** |
 | GWPS genome-wide bulk pre-training (v28) | 0.348 | **worse −0.008** |
+| **Leak-free rerun of v25 (v29)** | **0.3292** | honest number; test-gene bulk excluded from pre-training |
 
 **Things that didn't move the needle at all once we hit v25:**
 - Deeper or wider networks
