@@ -348,9 +348,25 @@ def main():
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     print("Loading v10 mean-delta cache ...")
+    if not V10_GENES.exists() or not V10_CACHE.exists():
+        raise FileNotFoundError(
+            f"v10 cache not found. Run scripts/replogle_genelevel_v10.py first to generate:\n"
+            f"  {V10_GENES}\n  {V10_CACHE}"
+        )
     with open(V10_GENES) as f:
         raw = json.load(f); valid_genes = raw if isinstance(raw, list) else raw["genes"]
     cache = np.load(str(V10_CACHE))
+    # Validate cache has required keys and shapes are consistent
+    required_keys = {"valid_sums", "valid_counts"}
+    missing = required_keys - set(cache.files)
+    if missing:
+        raise ValueError(f"v10 cache is missing required arrays: {missing}. Regenerate with v10 script.")
+    if len(valid_genes) != cache["valid_sums"].shape[0]:
+        raise ValueError(
+            f"v10 cache mismatch: {len(valid_genes)} gene names but "
+            f"{cache['valid_sums'].shape[0]} rows in valid_sums. Regenerate cache."
+        )
+    print(f"  {len(valid_genes)} genes, delta dim={cache['valid_sums'].shape[1]}")
 
     print("Opening sc adata for control_mean ...")
     import anndata as ad

@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.sparse as sp
 
 from virtualcell.data.adapters import from_anndata
 from virtualcell.data.fixtures import make_synthetic_dataset
@@ -97,6 +98,25 @@ def test_fit_response_role_descriptors_covers_every_profiled_gene_including_non_
 
     assert set(descriptors.keys()) == set(gene_names)
     assert descriptors["G9"].shape == (3,)  # G9 was never a train target, still gets a descriptor
+
+
+def test_control_mean_std_descriptors_works_with_sparse_X():
+    adata = make_synthetic_dataset(seed=5)
+    adata.X = sp.csr_matrix(adata.X)
+    dataset = from_anndata(adata, source_name="synthetic_fixture", is_synthetic=True)
+    manifest = held_out_target_split(dataset, seed=0)
+    descriptors = fit_control_mean_std_descriptors(dataset, manifest)
+    assert set(descriptors.keys()) == set(dataset.gene_ids)
+    assert descriptors[dataset.gene_ids[0]].shape == (2,)
+
+
+def test_coexpression_descriptors_works_with_sparse_X():
+    adata = make_synthetic_dataset(seed=5)
+    adata.X = sp.csr_matrix(adata.X)
+    dataset = from_anndata(adata, source_name="synthetic_fixture", is_synthetic=True)
+    manifest = held_out_target_split(dataset, seed=0)
+    descriptors = fit_coexpression_descriptors(dataset, manifest, n_components=5)
+    assert set(descriptors.keys()) == set(dataset.gene_ids)
 
 
 def test_fit_response_role_descriptors_held_out_target_not_derived_from_its_own_row():

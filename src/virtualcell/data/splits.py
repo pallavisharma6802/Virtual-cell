@@ -63,8 +63,9 @@ def held_out_target_split(
     if n < 3:
         raise ValueError(f"Dataset has only {n} target(s); need at least 3 to form train/val/test splits")
 
-    n_test = int(round(n * test_frac)) if test_frac > 0 else 0
-    n_val = int(round(n * val_frac)) if val_frac > 0 else 0
+    # For non-zero fracs guarantee at least 1 target even if rounding gives 0
+    n_test = max(1, int(round(n * test_frac))) if test_frac > 0 else 0
+    n_val = max(1, int(round(n * val_frac))) if val_frac > 0 else 0
     # Clamp so train always gets at least one target
     n_test = min(n_test, n - 2)
     n_val = min(n_val, n - n_test - 1)

@@ -36,7 +36,8 @@ def fit_control_mean_std_descriptors(
     ctrl_mask = dataset.control_mask()
     mask = train_mask & ctrl_mask
 
-    X_train_ctrl = np.asarray(dataset.adata.X[mask])
+    X_raw = dataset.adata.X[mask]
+    X_train_ctrl = np.asarray(X_raw.toarray() if hasattr(X_raw, "toarray") else X_raw, dtype=np.float32)
     mean_per_gene = X_train_ctrl.mean(axis=0)
     std_per_gene = X_train_ctrl.std(axis=0)
 
@@ -78,7 +79,8 @@ def fit_coexpression_descriptors(
     ctrl_mask = dataset.control_mask()
     mask = train_mask & ctrl_mask
 
-    X_train_ctrl = np.asarray(dataset.adata.X[mask])
+    X_raw = dataset.adata.X[mask]
+    X_train_ctrl = np.asarray(X_raw.toarray() if hasattr(X_raw, "toarray") else X_raw, dtype=np.float32)
     if X_train_ctrl.shape[0] < 3:
         raise ValueError("Need at least 3 train control cells to compute co-expression")
 

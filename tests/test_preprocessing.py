@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.sparse as sp
 
 from virtualcell.data.adapters import from_anndata
 from virtualcell.data.fixtures import make_synthetic_dataset
@@ -31,3 +32,19 @@ def test_scaler_transform_inverse_roundtrip():
     X_scaled = scaler.transform(X)
     X_back = scaler.inverse_transform(X_scaled)
     assert np.allclose(X, X_back, atol=1e-4)
+
+
+def test_scaler_works_with_sparse_X():
+    adata = make_synthetic_dataset(seed=3)
+    # Replace dense X with a CSR sparse matrix
+    adata.X = sp.csr_matrix(adata.X)
+    dataset = from_anndata(adata, source_name="synthetic_fixture", is_synthetic=True)
+    manifest = held_out_target_split(dataset, seed=0)
+    scaler = fit_scaler(dataset, manifest)
+    assert scaler.mean_.shape == (adata.n_vars,)
+    assert scaler.std_.shape == (adata.n_vars,)
+    # Mean should be close to the dense result
+    obs = adata.obs
+    train_mask = obs.index.isin(manifest.train_cell_ids)
+    X_dense = np.asarray(adata.X[train_mask].toarray())
+    assert np.allclose(scaler.mean_, X_dense.mean(axis=0), atol=1e-4)
