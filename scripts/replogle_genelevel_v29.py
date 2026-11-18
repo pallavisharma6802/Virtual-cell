@@ -294,7 +294,8 @@ def finetune(model, feat_dict, train_genes, train_md, val_t, val_md, test_t, tes
 
 
 def run_ensemble(name, feat_dict, feat_d, train_genes, train_md, val_t, val_md, test_t, test_md,
-                 pretrain_fn=None, n_seeds=5, save_dir: Path | None = None):
+                 pretrain_fn=None, n_seeds=5, save_dir: Path | None = None,
+                 expression_gene_names=None, control_mean=None, target_sum=None):
     delta_d = list(train_md.values())[0].shape[0]
     preds_all, seed_sc = [], []
     X_te = np.array([feat_dict.get(g, np.zeros(feat_d, np.float32)) for g in test_t])
@@ -328,12 +329,23 @@ def run_ensemble(name, feat_dict, feat_d, train_genes, train_md, val_t, val_md, 
     if save_dir is not None:
         pred_dir = save_dir / name
         pred_dir.mkdir(parents=True, exist_ok=True)
-        # Per-target ensemble predictions as npz
-        np.savez(
-            pred_dir / "predictions.npz",
-            genes=np.array(test_t),
+        # predictions.npz layout:
+        #   perturbation_genes: (n_test,) — the KO/CRISPRi targets being predicted (rows)
+        #   expression_genes:   (n_expr,) — the measured expression genes (columns)
+        #   preds:              (n_test, n_expr) — ensemble mean-delta predictions
+        #   control_mean:       (n_expr,) — per-gene control mean subtracted to form deltas
+        #   target_sum:         scalar — library-size normalization constant (counts per cell)
+        npz_kwargs = dict(
+            perturbation_genes=np.array(test_t),
             preds=ens_preds,
         )
+        if expression_gene_names is not None:
+            npz_kwargs["expression_genes"] = expression_gene_names
+        if control_mean is not None:
+            npz_kwargs["control_mean"] = control_mean
+        if target_sum is not None:
+            npz_kwargs["target_sum"] = np.array([target_sum])
+        np.savez(pred_dir / "predictions.npz", **npz_kwargs)
         # Split IDs for auditing
         import json as _json
         (pred_dir / "split_ids.json").write_text(_json.dumps(
@@ -361,12 +373,30 @@ def main():
     missing = required_keys - set(cache.files)
     if missing:
         raise ValueError(f"v10 cache is missing required arrays: {missing}. Regenerate with v10 script.")
-    if len(valid_genes) != cache["valid_sums"].shape[0]:
+    sums = cache["valid_sums"]
+    counts = cache["valid_counts"]
+    if len(valid_genes) != sums.shape[0]:
         raise ValueError(
             f"v10 cache mismatch: {len(valid_genes)} gene names but "
-            f"{cache['valid_sums'].shape[0]} rows in valid_sums. Regenerate cache."
+            f"{sums.shape[0]} rows in valid_sums. Regenerate cache."
         )
-    print(f"  {len(valid_genes)} genes, delta dim={cache['valid_sums'].shape[1]}")
+    if counts.shape[0] != sums.shape[0]:
+        raise ValueError(
+            f"v10 cache mismatch: valid_sums has {sums.shape[0]} rows but "
+            f"valid_counts has {counts.shape[0]}. Regenerate cache."
+        )
+    if sums.ndim != 2:
+        raise ValueError(f"valid_sums must be 2-D (genes × expression_dim), got shape {sums.shape}.")
+    if counts.ndim != 1:
+        raise ValueError(f"valid_counts must be 1-D (genes,), got shape {counts.shape}.")
+    if np.any(counts <= 0):
+        n_bad = int((counts <= 0).sum())
+        raise ValueError(
+            f"v10 cache has {n_bad} gene(s) with zero or negative count. "
+            "This would produce NaN/inf deltas. Regenerate cache."
+        )
+    delta_dim = sums.shape[1]
+    print(f"  {len(valid_genes)} genes, delta dim={delta_dim}")
 
     print("Opening sc adata for control_mean ...")
     import anndata as ad
@@ -381,6 +411,7 @@ def main():
     lib = X_cs_dense.sum(axis=1, keepdims=True); lib = np.where(lib == 0, 1.0, lib)
     gene_var = np.log1p(X_cs_dense / lib * TARGET_SUM).var(axis=0)
     top_gene_idx = np.sort(np.argsort(gene_var)[::-1][:N_HVG])
+    expression_gene_names = np.array(adata.var_names[top_gene_idx], dtype=str)
     del X_cs, X_cs_dense, gene_var
     ctrl_sum = np.zeros(N_HVG, dtype=np.float64)
     for start in range(0, n_ctrl, CHUNK_SIZE):
@@ -429,6 +460,9 @@ def main():
         pretrain_fn=lambda enc, seed: pretrain_all_string(
             enc, combo_dict, all_pairs, sig_norm, sig_idx,
             bulk_only=True, pretrain_epochs=PRETRAIN_EPOCHS, seed=seed),
+        expression_gene_names=expression_gene_names,
+        control_mean=control_mean,
+        target_sum=TARGET_SUM,
     )
     results["bulk_pairs_pretrain"] = {"test_pearson_mean": em_a, "test_pearson_median": emed_a, "per_seed": sc_a}
 
@@ -440,6 +474,9 @@ def main():
         pretrain_fn=lambda enc, seed: pretrain_all_string(
             enc, combo_dict, all_pairs, sig_norm, sig_idx,
             bulk_only=False, pretrain_epochs=PRETRAIN_EPOCHS, seed=seed),
+        expression_gene_names=expression_gene_names,
+        control_mean=control_mean,
+        target_sum=TARGET_SUM,
     )
     results["all_string_pretrain"] = {"test_pearson_mean": em_b, "test_pearson_median": emed_b, "per_seed": sc_b}
 

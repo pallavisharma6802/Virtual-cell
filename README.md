@@ -76,12 +76,13 @@ The encoder is a 4-layer MLP (1040→2048→1024→512→256) with LayerNorm and
 GELU activations, followed by a 2-layer prediction head (256→512→output).
 We train 5 random seeds and report the ensemble mean.
 
-**Evaluation note:** In v25, bulk perturbation signatures are loaded before
-the train/test split and used to supervise pre-training similarity. This means
-test-gene bulk responses contribute to pre-training signal, which slightly
-overstates true generalization. Single-cell fine-tuning does exclude test
-targets, so the gap versus GEARS remains meaningful, but the number should be
-treated as an upper bound on a fully leak-free setup.
+**Evaluation note (v29):** v25 had a pre-training data leak: bulk perturbation
+signatures were loaded before the train/test split, so test-gene bulk responses
+contributed to pre-training signal. v29 fixes this by filtering pre-training
+to train genes only. The honest leak-free result is **0.3292** (v25 reported
+0.3557, which is now retired). The score drop also reflects a simultaneous
+STRING normalization fix, so contributions cannot be separated without
+further ablations.
 
 ---
 
@@ -200,7 +201,7 @@ python -u scripts/replogle_genelevel_v29.py
 ```
 
 The scripts download nothing — all data must be pre-staged. v10 takes ~25
-minutes and v25 takes ~40 minutes on a CPU-only machine (m7i-flex.large or
+minutes and v29 takes ~40 minutes on a CPU-only machine (m7i-flex.large or
 equivalent).
 
 ---
