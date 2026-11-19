@@ -141,6 +141,7 @@ prediction. Spent several milestones getting the evaluation metric right.
 | ESM2-650M 1280d embeddings (v27) | 0.346 | **worse −0.009** |
 | GWPS genome-wide bulk pre-training (v28) | 0.348 | **worse −0.008** |
 | **Leak-free rerun of v25 (v29)** | **0.3292** | honest number; test-gene bulk excluded from pre-training |
+| Loss/formulation ablation (v30) | 0.3275 | Pearson loss + mean-correction ablation; no improvement over v29 |
 
 **Things that didn't move the needle at all once we hit v25:**
 - Deeper or wider networks

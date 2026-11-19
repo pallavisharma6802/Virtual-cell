@@ -2251,3 +2251,49 @@ change tried so far (~35 milestones). More perturbation fine-tuning data remains
 leading hypothesis for further gains, but this is unconfirmed — a qualitatively
 different approach could also break through. The GWPS single-cell investigation
 remains the highest-leverage concrete next step to test the data-quantity hypothesis.
+
+---
+
+## 2026-11-18 — Milestone 37 (v30): Loss-function and target-formulation ablation
+
+**Branch:** `v29-leak-free-pretrain`  
+**Script:** `scripts/replogle_genelevel_v30.py`  
+**EC2 runtime:** ~3h33m (m7i-flex.large, CPU-only)
+
+### Setup
+
+2×2 factorial on the fine-tuning stage only. Encoder and pre-training identical to v29 Exp A (bulk-only pairs, 800 epochs). Same train/val/test split (random_state=0): 1439/309/309.
+
+**Hypothesis 1 — Pearson loss:** v29 trains with 1 − cosine_similarity (uncentered) but evaluates Pearson (centered). Centering each vector across output genes before cosine aligns the loss with the metric.
+
+**Hypothesis 2 — Mean-plus-correction:** Predict (delta − global_mean); add global_mean back at inference. Global mean computed from train targets only. The residuals the network fits are smaller and arguably easier to learn.
+
+### Results
+
+| Experiment | Test Pearson (mean) | Test Pearson (median) | Val winner? |
+|---|---|---|---|
+| cosine_raw (v29 replicated) | 0.3280 | 0.2750 | — |
+| pearson_raw | 0.3275 | 0.2778 | ✓ (best by val) |
+| cosine_correction | 0.1775 | 0.0773 | — |
+| pearson_correction | 0.1696 | 0.0696 | — |
+
+Global mean baseline: 0.2405. Oracle: 0.4739.
+
+Per-seed cosine_raw: 0.3198, 0.3205, 0.3140, 0.3241, 0.3206 → ensemble **0.3280**
+Per-seed pearson_raw: 0.3201, 0.3193, 0.3179, 0.3249, 0.3201 → ensemble **0.3275**
+
+### Interpretation
+
+**Pearson loss (H1): no meaningful gain.** cosine_raw and pearson_raw are statistically indistinguishable (0.3280 vs 0.3275, within seed variance). Aligning the loss with the evaluation metric did not help in this regime.
+
+**Mean-plus-correction (H2): large degradation.** Both correction variants collapsed to ~0.17 — roughly half the baseline. This is not a marginal miss; cosine_correction lost ~0.15 Pearson points. Likely cause: the residual target (delta − global_mean) has much smaller magnitude than the full delta. With cosine or Pearson loss on a normalized embedding, the network cannot distinguish small-magnitude residuals from noise, so the best-val checkpoint is selected on a nearly flat landscape. Pearson loss did not rescue this.
+
+**No improvement over v29.** The v30 winner (pearson_raw, 0.3275) is marginally below v29 Exp A (0.3292) — the small gap is consistent with noise across runs.
+
+### Conclusions
+
+Neither hypothesis produced a gain. The evidence suggests:
+1. The loss–metric mismatch (cosine vs Pearson) is not a bottleneck at this scale.
+2. Mean-plus-correction requires either MSE loss (which is magnitude-sensitive) or explicit magnitude regularization; cosine/Pearson loss on normalized embeddings cannot handle it as implemented.
+
+The v29 result (0.3292) remains the best honest number.
